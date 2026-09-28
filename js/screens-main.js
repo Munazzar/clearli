@@ -259,7 +259,12 @@
           ${t.amt < 0 ? `<div class="item tap" data-a="txSave" data-x="${U.esc(k)}">${UI.bubble('piggy-bank', '#43D9B8')}<div class="grow"><div class="t">${S.edits[k] && S.edits[k].stash ? 'Moved to ' + U.esc(((S.assets || []).find((x) => x.id === S.edits[k].stash) || {}).name || 'savings') : 'Moved to savings'}</div><div class="s">Cash, gold, investments or another account</div></div>${I('chevron-right')}</div>` : ''}
         </div>
         ${looksBonus ? `<div class="g pad-s" style="margin-top:12px;background:linear-gradient(150deg,${U.hexA('#FFD166', 0.28)},${U.hexA('#FFD166', 0.05)})"><div class="small">${I('sparkles', 'sm')} This is <b class="amt">${U.money(t.amt - usual)}</b> more than your usual <b class="amt">${U.money(usual)}</b> from ${U.esc(t.name)}. Includes a bonus?</div><button class="btn sm" style="margin-top:10px" data-a="txBonus" data-x="${U.esc(k)}">Split out ${U.money(t.amt - usual)} as bonus</button></div>` : ''}
-        ${t.kind === 'income' && t.amt > 0 ? `<div class="field" style="margin-top:14px"><span>Count this income toward</span>${UI.seg([['', 'Auto'], ['this', U.fmtMonth(t.ts, true)], ['next', U.fmtMonth(U.addMonths(U.som(t.ts), 1), true)]], t.month || '', 'txMonth')}<div class="tiny faint" style="margin:6px 4px 0">${t.shifted ? 'Counted in ' + U.fmtMonth(t.rts) + ' because it arrived early.' : 'Counted in the month it arrived.'} Early paychecks are moved automatically.</div></div>` : ''}
+        ${t.amt > 0 ? (() => { const rule = S.rules.find((r) => r.match === 'merchant' && r.pattern === t.m); const day = new Date(t.ts).getDate(); return `<div class="g pad-s" style="margin-top:14px"><div class="h3" style="margin-bottom:8px">${I('calendar-clock', 'sm')} Which month does this money belong to?</div>${UI.seg([['', 'Auto'], ['this', U.fmtMonth(t.ts, true)], ['next', U.fmtMonth(U.addMonths(U.som(t.ts), 1), true)]], t.month || '', 'txMonth')}
+          <div class="small ${t.shifted ? 'pos' : 'muted'}" style="margin:8px 4px 0">${t.shifted ? `Counted as <b>${U.fmtMonth(t.rts)}</b> income (arrived ${U.fmtDate(t.ts)}).` : `Counted as <b>${U.fmtMonth(t.ts)}</b> income.`}</div>
+          ${t.kind !== 'income' ? `<div class="small warn" style="margin:6px 4px 0">${I('info', 'sm')} Its category (${U.esc(c.name)}) isn't counted as income. Change the category to Paycheck or Other Income to include it.</div>` : ''}
+          <div class="item" style="padding:10px 2px 0"><div class="grow"><div class="t" style="font-size:14px">Always for ${U.esc(t.rawName)}</div><div class="s">Deposits on or after the ${day}${['th', 'st', 'nd', 'rd'][(day % 10 > 3 || [11, 12, 13].includes(day)) ? 0 : day % 10]} count toward the next month</div></div>${UI.toggle(!!(rule && rule.nextFrom), 'txNextRule', k)}</div>
+          <div class="tiny faint" style="margin:6px 4px 0">You can also add the tag <b>nextmonth</b> to any deposit.</div></div>`; })() : ''}
+        ${t.series ? (() => { const r = V.recurring.find((x) => x.key === t.series); return r ? `<div class="list g flat" style="margin-top:12px"><div class="item tap" data-a="recOpen" data-x="${U.esc(r.key)}">${UI.bubble('repeat', '#B78CFF')}<div class="grow"><div class="t">Part of: ${U.esc(r.name)}</div><div class="s">${r.freq} · ${U.money(Math.abs(r.amount))} · name or categorize this subscription separately</div></div>${I('chevron-right')}</div></div>` : ''; })() : ''}
         <div class="sp"></div>
         <label class="field"><span>Note</span><textarea class="inp" data-in="txNote" data-x="${U.esc(k)}" id="txNote" placeholder="Add a note for yourself" style="min-height:64px">${U.esc(t.note)}</textarea></label>
         <label class="field"><span>Tags (space separated)</span><input class="inp" data-ch="txTags" data-x="${U.esc(k)}" value="${U.esc((t.tags || []).join(' '))}" placeholder="work reimbursable trip"></label>
@@ -292,6 +297,14 @@
   let curTx = null;
   const _openTx = App.openTx;
   App.openTx = function (k) { curTx = k; _openTx(k); };
+  UI.on('txNextRule', (k) => {
+    const t = Store.V.byKey[k] || Store.V.byKey[k + '~0'];
+    const r = Store.S.rules.find((x) => x.match === 'merchant' && x.pattern === t.m);
+    if (r && r.nextFrom) { delete r.nextFrom; if (!r.cat && !r.rename) Store.S.rules = Store.S.rules.filter((x) => x !== r); }
+    else Store.upsertRule({ match: 'merchant', pattern: t.m, nextFrom: new Date(t.ts).getDate() });
+    Store.commit({ silent: true }); UI.renderSheet();
+    UI.toast(r && !r.nextFrom ? 'Rule removed' : 'Late deposits from ' + t.rawName + ' now count toward the next month', 'calendar-clock');
+  });
   UI.on('txMonth', (x) => { Store.setEdit(curTx, { month: x || null }); Store.commit({ silent: true }); UI.renderSheet(); });
   UI.on('txBonus', (k) => {
     const V = Store.V; const t = V.byKey[k];

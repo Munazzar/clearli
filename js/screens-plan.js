@@ -362,11 +362,22 @@
         <div class="grid3" style="margin-top:12px"><div class="g kpi"><div class="tiny faint">Next</div><div class="v" style="font-size:16px">${r.active ? U.fmtDate(r.next, { rel: true }) : '—'}</div></div><div class="g kpi"><div class="tiny faint">Per month</div><div class="v amt" style="font-size:16px">${U.money(Math.abs(r.monthly))}</div></div><div class="g kpi"><div class="tiny faint">Per year</div><div class="v amt" style="font-size:16px">${U.money(Math.abs(r.yearly), { whole: true })}</div></div></div>
         ${r.priceChange ? `<div class="g pad-s small" style="margin-top:12px"><div>${I('trending-up', 'sm')} Changed from <b class="amt">${U.money(r.priceChange.from)}</b> to <b class="amt">${U.money(r.priceChange.to)}</b> (${U.pct(r.priceChange.pct)}) on ${U.fmtDate(r.priceChange.at)}.</div><button class="btn sm" style="margin-top:10px" data-a="recNoHike" data-x="${U.esc(r.key)}">${I('check', 'sm')} That's expected — not a price increase</button></div>` : ''}
         <div class="g pad-s" style="margin-top:12px">${UI.chart('recH', { type: 'line', data: { labels: hist.map((t) => U.fmtDate(t.ts)), datasets: [{ label: 'Amount', data: hist.map((t) => Math.abs(t.amt)), borderColor: c.color, backgroundColor: UI.grad(c.color, 0.3, 0), fill: true, pointRadius: 3, stepped: true }] }, options: UI.baseOpts({ zero: false }) }, 160)}</div>
+        <div class="g pad-s" style="margin-top:12px"><label class="field" style="margin-bottom:10px"><span>Name for this ${r.amount < 0 ? 'charge' : 'deposit'}</span><input class="inp" data-ch="recName" data-x="${U.esc(r.key)}" value="${U.esc((Store.S.recurringOverrides || {})[r.key + '|name'] || '')}" placeholder="${U.esc(r.name)}"></label>
+          <div class="item tap" data-a="recCat" data-x="${U.esc(r.key)}" style="padding:6px 2px">${UI.catBubble(c)}<div class="grow"><div class="t" style="font-size:14px">${U.esc(c.name)}</div><div class="s">Category for this ${r.amount < 0 ? 'charge' : 'deposit'} only</div></div>${I('chevron-right')}</div>
+          <div class="item" style="padding:6px 2px"><div class="grow"><div class="t" style="font-size:14px">Different amounts are different ${r.amount < 0 ? 'subscriptions' : 'deposits'}</div><div class="s">From ${U.esc(E.titleCase(r.m))} · ${(Store.S.recurringOverrides || {})[r.m + '|split'] === undefined ? 'auto: ' + (E.multiBilled(r.history) || r.key.includes('#') ? 'yes' : 'no') : 'set by you'}</div></div>${UI.toggle(r.key.includes('#'), 'recSplit', r.m)}</div></div>
         <div class="sp"></div><div class="grid2"><button class="btn sm" data-a="merchOpen" data-x="${U.esc(r.m)}">${I('receipt', 'sm')} All charges</button><button class="btn sm danger" data-a="recIgnore" data-x="${U.esc(r.key)}">${I('x', 'sm')} Not recurring</button></div>
         ${UI.sec('History')}<div class="list g flat">${[...r.history].slice(-12).reverse().map((t) => UI.txRow(t, { showDate: true })).join('')}</div>`;
     };
     UI.sheet({ title: 'Recurring', body, full: true, onClose: () => App.render() });
   };
+  const ovr = () => (Store.S.recurringOverrides = Store.S.recurringOverrides || {});
+  UI.on('recName', (v, el) => { const k = el.dataset.x; if (v.trim()) ovr()[k + '|name'] = v.trim(); else delete ovr()[k + '|name']; Store.commit({ silent: true }); UI.renderSheet(); UI.toast('Name saved', 'pencil'); });
+  UI.on('recCat', (k) => { const r = Store.V.recurring.find((x) => x.key === k); App.pickCategory(r ? r.cat : null, (id) => { ovr()[k + '|cat'] = id; Store.commit({ silent: true }); UI.renderSheet(); }); });
+  UI.on('recSplit', (m) => {
+    const cur = Store.V.recurring.some((r) => r.m === m && r.key.includes('#'));
+    ovr()[m + '|split'] = !cur; Store.commit({ silent: true }); UI.closeSheet(); App.render();
+    UI.toast(!cur ? 'Split by amount — each is its own recurring item now' : 'Combined into one recurring item', 'repeat');
+  });
   UI.on('recNoHike', (k) => { Store.S.recurringOverrides[k + '|nohike'] = true; Store.commit({ silent: true }); UI.renderSheet(); UI.toast('Got it — won\'t flag this as a price increase', 'check'); });
   UI.on('recIgnore', (k) => { Store.S.recurringOverrides[k] = 'ignore'; Store.commit({ silent: true }); UI.renderSheet(); UI.toast('Removed from recurring', 'x'); });
   UI.on('recUnignore', (k) => { delete Store.S.recurringOverrides[k]; Store.commit({ silent: true }); UI.renderSheet(); });

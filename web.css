@@ -7,19 +7,18 @@ body { user-select: text; -webkit-user-select: text; }
 }
 @media (min-width: 900px) {
   #tabs { left: 18px; top: 18px; bottom: 18px; transform: none; width: 210px; height: auto; flex-direction: column; justify-content: flex-start; align-items: stretch; padding: 70px 10px 10px; border-radius: 30px; gap: 4px; }
-  #tabs::before { content: 'Clearli'; position: absolute; top: 22px; left: 24px; font-weight: 800; font-size: 22px; letter-spacing: -.02em; color: var(--text); }
+  #tabs::before { content: 'Clearli'; inset: auto; top: 22px; left: 24px; right: auto; bottom: auto; background: none; z-index: 3; font-weight: 800; font-size: 22px; letter-spacing: -.02em; color: var(--text); }
   #tabs button { flex: none; height: 48px; flex-direction: row; justify-content: flex-start; gap: 12px; padding: 0 16px; font-size: 14.5px; }
   #tabs .drop { left: 10px !important; width: calc(100% - 20px) !important; border-radius: 16px; }
   #app { left: 246px; }
   #top { padding: 22px 28px 10px; max-width: 1560px; }
   #view { padding: 6px 28px 60px; }
-  #view { column-count: 2; column-gap: 18px; max-width: 1560px; }
-  #view > * { break-inside: avoid; margin-bottom: 14px; }
-  #view > .sec { break-after: avoid; margin-top: 10px; }
-  #view > .seg, #view > .chips, #view > .search, #view > .grid2, #view > #webStatus, #view > .g.row:has(> .iconbtn), #view > .g.hero, #view > .g.tint, #view > .sp, #view > #actList, #view > .dayhdr { column-span: all; }
+  /* grid (not CSS columns: backdrop-filter inside multi-column layouts renders as solid blocks in Chrome) */
+  #view { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: max-content; gap: 14px 18px; align-content: start; align-items: start; max-width: 1560px; }
+  #view > * { margin: 0 !important; min-width: 0; }
+  #view > .sec { grid-column: 1 / -1; margin-top: 12px !important; }
+  #view > .seg, #view > .chips, #view > .search, #view > #webStatus, #view > .g.row:has(> .iconbtn), #view > .g.hero, #view > .g.tint, #view > #actList, #view > .dayhdr, #view > .acctcards, #view > .grid2:has(.kpi), #view > .grid3, #view > p, #view > .g:has(> .empty), #view > .g:has(.cal), #view > .list { grid-column: 1 / -1; }
   #view > .sp { display: none; }
-  #actList { column-count: 2; column-gap: 18px; }
-  #actList > * { break-inside: avoid; }
   .sheet { left: calc(50% - 330px + 123px); right: auto; width: 660px; bottom: 3vh; max-height: 94vh; border-radius: 30px; }
   .sheet .grab { display: none; }
   .selbar { left: calc(50% + 123px); bottom: 24px; }
@@ -29,6 +28,5 @@ body { user-select: text; -webkit-user-select: text; }
   .hero .big { font-size: 48px; }
 }
 @media (min-width: 1500px) {
-  #view { column-count: 3; }
-  #actList { column-count: 3; }
+  #view { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }

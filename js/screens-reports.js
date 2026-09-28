@@ -16,8 +16,9 @@
 
   App.screens.reports = function () {
     const R = App.rep;
-    let body = UI.seg([['overview', 'Overview'], ['trends', 'Trends'], ['compare', 'Compare'], ['leaks', 'Leaks']], R.seg, 'repSeg') + '<div class="sp"></div>';
+    let body = UI.seg([['overview', 'Spending'], ['income', 'Income'], ['trends', 'Trends'], ['compare', 'Compare'], ['leaks', 'Leaks']], R.seg, 'repSeg') + '<div class="sp"></div>';
     if (R.seg === 'overview') body += periodBar() + overview();
+    else if (R.seg === 'income') body += periodBar() + income();
     else if (R.seg === 'trends') body += periodBar() + trends();
     else if (R.seg === 'compare') body += compare();
     else body += leaks();
@@ -121,6 +122,53 @@
     // Largest
     const big = cur.filter((t) => t.kind === 'expense').sort((a, b) => a.amt - b.amt).slice(0, 5);
     if (big.length) h += UI.sec('Largest purchases') + `<div class="list g">${big.map((t) => UI.txRow(t, { showDate: true })).join('')}</div>`;
+    return h;
+  }
+
+  /* ---------------- Income (by the month it counts toward) ---------------- */
+  function income() {
+    const S = Store.S; const V = Store.V; const R = App.rep; const ws = S.settings.weekStart;
+    const all = App.list();
+    const pr = E.periodRange(R.pid, R.off, null, ws); const pv = E.periodRange(R.pid, R.off - 1, null, ws);
+    const inc = E.inRange(all, pr.a, pr.b).filter((t) => t.kind === 'income');
+    const pinc = E.inRange(all, pv.a, pv.b).filter((t) => t.kind === 'income');
+    const tot = U.sum(inc, (t) => t.amt); const ptot = U.sum(pinc, (t) => t.amt);
+    const bonus = U.sum(inc.filter((t) => t.cat === 'bonus'), (t) => t.amt);
+    const regular = U.sum(inc.filter((t) => t.cat === 'income'), (t) => t.amt);
+    const other = tot - bonus - regular;
+    const spent = E.totals(E.inRange(all, pr.a, pr.b)).spend;
+    const early = inc.filter((t) => t.shifted && t.ts < +pr.a);
+    const leftEarly = E.inRangeTs(all, pr.a, pr.b).filter((t) => t.kind === 'income' && t.shifted && t.rts >= +pr.b);
+    const future = +pr.b > Date.now() ? E.projectRecurring(V, new Date(Math.max(+pr.a, Date.now())), pr.b).filter((x) => x.r.amount > 0) : [];
+    const expected = U.sum(future, (x) => x.r.amount);
+    let h = `<div class="g tint pad"><div class="eyebrow" style="color:var(--text)">Income · ${pr.label}</div><div class="big amt pos" style="margin-top:6px">${U.money(tot)}</div>
+      <div class="small muted" style="margin-top:6px">${UI.delta(tot, ptot)} vs ${pv.label} (<span class="amt">${U.money(ptot, { whole: true })}</span>)${expected ? ` · <span class="amt">${U.money(expected, { whole: true })}</span> still expected` : ''}</div>
+      <div class="grid3" style="margin-top:14px"><div><div class="tiny faint">Paychecks</div><div class="b amt">${U.money(regular, { auto: true })}</div></div><div><div class="tiny faint">Bonus</div><div class="b amt">${U.money(bonus, { auto: true })}</div></div><div><div class="tiny faint">Other</div><div class="b amt">${U.money(other, { auto: true })}</div></div></div>
+      <div style="margin-top:12px">${UI.progress(tot ? Math.min(1, spent / tot) : 1, spent > tot ? 'var(--neg)' : 'var(--accent)')}</div><div class="tiny faint" style="margin-top:6px">Spent <span class="amt">${U.money(spent, { whole: true })}</span> of it · ${tot ? (spent <= tot ? 'kept ' + Math.round((1 - spent / tot) * 100) + '%' : 'overspent by ' + U.money(spent - tot, { whole: true })) : ''}</div></div>`;
+    if (early.length || leftEarly.length) h += `<div class="g pad-s small" style="margin-top:12px">${I('calendar-clock', 'sm')} ${early.length ? `<b>${early.length}</b> deposit${early.length > 1 ? 's' : ''} received early (${early.map((t) => U.fmtDate(t.ts)).join(', ')}) ${early.length > 1 ? 'are' : 'is'} counted here.` : ''} ${leftEarly.length ? `<b>${leftEarly.length}</b> received in this period ${leftEarly.length > 1 ? 'count' : 'counts'} toward the next one.` : ''}</div>`;
+    // 12 months by payer
+    const m1 = U.addMonths(U.som(pr.b > Date.now() ? new Date() : new Date(+pr.b - 1)), 1); const m0 = U.addMonths(m1, -12);
+    const incAll = all.filter((t) => t.kind === 'income');
+    const payers = E.byMerchant(E.inRange(incAll, m0, m1), 'income').slice(0, 4);
+    const cols = ['#43D9B8', '#7C8CFF', '#FFD166', '#FF6FB5'];
+    const ds = payers.map((p, i) => ({ label: p.name, data: E.series(incAll.filter((t) => t.m === p.m && t.cat !== 'bonus'), m0, m1, 'month', ws, (t) => t.amt).vals, backgroundColor: cols[i], stack: 's', borderRadius: 3 }));
+    const bon = E.series(incAll.filter((t) => t.cat === 'bonus'), m0, m1, 'month', ws, (t) => t.amt);
+    if (bon.vals.some((v) => v)) ds.push({ label: 'Bonus', data: bon.vals, backgroundColor: '#FFB547', stack: 's', borderRadius: 3 });
+    const rest = E.series(incAll.filter((t) => !payers.some((p) => p.m === t.m) && t.cat !== 'bonus'), m0, m1, 'month', ws, (t) => t.amt);
+    if (rest.vals.some((v) => v)) ds.push({ label: 'Other', data: rest.vals, backgroundColor: U.hexA('#8A93B8', 0.7), stack: 's', borderRadius: 3 });
+    const lbls = E.series([], m0, m1, 'month', ws, () => 0).labels;
+    h += card('Income by month', 'counted in the month it belongs to', UI.chart('iMonths', { type: 'bar', data: { labels: lbls, datasets: ds }, options: UI.baseOpts({ stacked: true }) }, 220), legend(ds.map((d) => [d.backgroundColor, d.label])));
+    // sources this period
+    const src = E.byMerchant(inc, 'income');
+    if (src.length) h += UI.sec('Where it came from') + `<div class="list g">${src.map((m) => `<div class="item tap" data-a="merchOpen" data-x="${U.esc(m.m)}">${UI.bubble('hand-coins', '#43D9B8')}<div class="grow"><div class="t ell">${U.esc(m.name)}</div><div class="s">${m.n} deposit${m.n > 1 ? 's' : ''} · ${Math.round((m.v / (tot || 1)) * 100)}%</div></div><div class="r b pos amt">${U.money(m.v)}</div></div>`).join('')}</div>`;
+    // each deposit
+    if (inc.length) {
+      h += UI.sec('Every deposit') + `<div class="list g">${[...inc].sort((a, b) => b.ts - a.ts).map((t) => `<div class="item tap" data-a="tx" data-x="${U.esc(t.parent || t.k)}">${UI.catBubble(V.catMap[t.cat])}<div class="grow"><div class="t ell">${U.esc(t.name)} ${t.shifted ? `<span class="badge acc">${I('calendar-clock')} counts in ${U.MON[new Date(t.rts).getMonth()]}</span>` : ''}</div><div class="s">Received ${U.fmtDate(t.ts, { dow: true })} · ${U.esc(V.catMap[t.cat].name)}</div></div><div class="r b pos amt">${U.money(t.amt)}</div></div>`).join('')}</div>`;
+    } else h += `<div class="sp"></div><div class="g">${UI.empty('hand-coins', 'No income in this period')}</div>`;
+    if (future.length) h += UI.sec('Still expected') + `<div class="list g">${future.map((x) => `<div class="item tap" data-a="recOpen" data-x="${U.esc(x.r.key)}">${UI.bubble('clock', '#43D9B8')}<div class="grow"><div class="t">${U.esc(x.r.name)}</div><div class="s">${U.fmtDate(x.date, { rel: true, dow: true })}</div></div><div class="r b pos amt">${U.money(x.r.amount)}</div></div>`).join('')}</div>`;
+    // money in that isn't counted as income
+    const notInc = E.inRangeTs(all, pr.a, pr.b).filter((t) => t.amt > 0 && t.kind !== 'income');
+    if (notInc.length) h += UI.sec('Money in, not counted as income', `<span class="small muted amt">${U.money(U.sum(notInc, (t) => t.amt), { whole: true })}</span>`) + `<p class="small faint" style="margin:-4px 6px 8px">Transfers between your accounts, card payments and refunds. Tap one to change its category if it's really income.</p><div class="list g">${notInc.slice(0, 15).map((t) => UI.txRow(t, { showDate: true })).join('')}</div>`;
     return h;
   }
 

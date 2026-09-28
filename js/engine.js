@@ -214,7 +214,13 @@
     // of the previous month counts toward the month it's meant for (auto), or as the user chooses.
     const nextMonth = (ts) => +U.addDays(U.som(U.addMonths(U.som(ts), 1)), 0) + 12 * 3600000;
     const auto = S.settings && S.settings.earlyIncome !== false;
-    const incByM = U.groupBy(list.filter((t) => t.kind === 'income' && t.amt > 0), (t) => t.m);
+    const isNextTag = (t) => (t.tags || []).some((g) => /^#?next-?month$/i.test(g));
+    for (const t of list) {
+      if (t.amt <= 0 || t.month === 'this') continue;
+      const r = merchRules[t.m]; const day = new Date(t.ts).getDate();
+      if (t.month === 'next' || isNextTag(t) || (r && r.nextFrom && day >= r.nextFrom)) { t.rts = nextMonth(t.ts); t.shifted = true; }
+    }
+    const incByM = U.groupBy(list.filter((t) => t.kind === 'income' && t.amt > 0 && !t.shifted), (t) => t.m);
     for (const [, txs] of incByM) {
       const early = txs.filter((t) => new Date(t.ts).getDate() <= 7).length;
       const lateMonth = (t) => { const d = new Date(t.ts); return d.getDate() > U.dim(d) - 6; };
@@ -226,6 +232,16 @@
       }
     }
     V.recurring = E.detectRecurring(V);
+    const ovr = S.recurringOverrides || {};
+    for (const r of V.recurring) {
+      const nm = ovr[r.key + '|name']; const ct = ovr[r.key + '|cat'];
+      for (const h of r.history) {
+        const e = S.edits[h.parent || h.k] || {};
+        if (nm && !e.name) h.name = nm;
+        if (ct && catMap[ct] && h.catSrc !== 'manual') { h.cat = ct; h.kind = catMap[ct].kind; h.catSrc = 'series'; }
+        h.series = r.key;
+      }
+    }
     const recKeys = new Set();
     for (const r of V.recurring) for (const h of r.history) recKeys.add(h.k);
     for (const t of list) t.recurring = recKeys.has(t.k);
@@ -427,7 +443,7 @@
       if (all0.length < 2) continue;
       // One company can bill several different things (e.g. Apple iCloud + Apple Music).
       // Split by amount, then re-join pieces that follow each other in time (that's a real price change).
-      const series = E.splitSeries(all0);
+      const series = E.splitSeries(all0, ov[mk + '|split'] === true ? true : ov[mk + '|split'] === false ? false : null);
       for (const sr of series) {
       const key = series.length > 1 ? mk + '#' + Math.round(U.median(sr.map((t) => Math.abs(t.amt)))) : mk;
       if (ov[key] === 'ignore') continue;
@@ -466,7 +482,10 @@
         while (j >= 0 && Math.abs(amts[j] - cur) / cur < 0.05) j--;
         if (j >= 0) {
           const prev = amts[j]; const at = pts[j + 1].ts;
-          if (Math.abs(cur - prev) >= 1 && now - at < 183 * DAY) priceChange = { from: prev, to: cur, pct: (cur - prev) / prev, at };
+          // only fixed-price bills: variable ones (utilities, groceries) naturally move around
+          const before = amts.slice(Math.max(0, j - 3), j + 1);
+          const stable = before.length >= 2 ? U.stdev(before) / (U.mean(before) || 1) < 0.03 : true;
+          if (stable && Math.abs(cur - prev) >= 1 && now - at < 183 * DAY) priceChange = { from: prev, to: cur, pct: (cur - prev) / prev, at };
         }
       }
       if (ov[key + '|nohike']) priceChange = null;
@@ -481,16 +500,26 @@
     }
     // Same merchant, several services: give each a distinguishable name
     const byM = U.groupBy(out, (r) => r.m);
-    for (const [, rs] of byM) if (rs.length > 1) for (const r of rs) r.name = r.name + ' · ' + U.money(Math.abs(r.amount));
+    for (const [, rs] of byM) if (rs.length > 1) for (const r of rs) if (!ov[r.key + '|name']) r.name = r.name + ' · ' + U.money(Math.abs(r.amount));
+    for (const r of out) { if (ov[r.key + '|name']) r.name = ov[r.key + '|name']; if (ov[r.key + '|cat'] && V.catMap[ov[r.key + '|cat']]) { r.cat = ov[r.key + '|cat']; r.kind = V.catMap[r.cat].kind; } }
     return out.sort((a, b) => a.monthly - b.monthly);
   };
-  E.splitSeries = function (txs0) {
+  // A company that charges more than once in most months is billing for separate things (e.g. two
+  // subscriptions, or rent + parking). Only then are charges separated by amount.
+  E.multiBilled = function (txs) {
+    const byMonth = U.groupBy(txs, (t) => U.monthKey(t.ts));
+    const months = [...byMonth.values()];
+    return months.length >= 2 && months.filter((g) => g.length > 1).length >= Math.max(2, months.length * 0.5);
+  };
+  E.splitSeries = function (txs0, force) {
     const txs = [...txs0].sort((a, b) => a.ts - b.ts);
+    const multi = force === true || (force !== false && E.multiBilled(txs));
+    if (!multi) return [txs];
     const byAmt = [...txs].sort((a, b) => Math.abs(a.amt) - Math.abs(b.amt));
     const clusters = [];
     for (const t of byAmt) {
       const v = Math.abs(t.amt); const c = clusters[clusters.length - 1];
-      if (c && v <= c.base * 1.2 + 1.5) c.items.push(t); else clusters.push({ base: v, items: [t] });
+      if (c && v <= c.base * 1.1 + 0.5) c.items.push(t); else clusters.push({ base: v, items: [t] });
     }
     if (clusters.length === 1) return [txs];
     for (const c of clusters) { c.items.sort((a, b) => a.ts - b.ts); c.first = c.items[0].ts; c.last = c.items[c.items.length - 1].ts; }
