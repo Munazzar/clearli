@@ -48,7 +48,7 @@
       v: 1,
       settings: { theme: 'glass-dark', accent: '#7C8CFF', currency: 'USD', hideAmounts: false, lock: false, lockAfter: 60, reduceFx: false, weekStart: 0, historyDays: 365, apy: 4.0, onboarded: false, demo: false, autoSync: true, secureScreen: true },
       conns: {}, accounts: {}, txns: {}, edits: {}, rules: [], cats: E.DEFAULT_CATS.map((c) => Object.assign({}, c)),
-      recurringOverrides: {}, goals: [], backfill: null, assets: [], imports: [], syncLog: [], lastSync: 0, oldest: 0, quota: { day: '', n: 0 }, errors: [],
+      recurringOverrides: {}, goals: [], backfill: null, assets: [], imports: [], reviewed: {}, syncLog: [], lastSync: 0, oldest: 0, quota: { day: '', n: 0 }, errors: [],
     };
   }
   const Store = { N, S: fresh(), V: null, listeners: [] };
@@ -246,7 +246,7 @@
   };
   Store.upsertRule = function (rule) {
     const S = Store.S;
-    const i = S.rules.findIndex((r) => r.id === rule.id || (r.match === rule.match && r.pattern === rule.pattern));
+    const i = S.rules.findIndex((r) => r.id === rule.id || (r.match === rule.match && r.pattern === rule.pattern && (r.sign || '') === (rule.sign || '')));
     if (i >= 0) S.rules[i] = Object.assign(S.rules[i], rule); else S.rules.push(Object.assign({ id: U.uid(), created: Date.now() }, rule));
   };
 

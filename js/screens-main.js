@@ -4,6 +4,7 @@
   const DAY = U.DAY;
 
   /* =============================== HOME =============================== */
+  const hasDataQuick = () => Store.V && Store.V.list.length > 0;
   App.screens.home = function () {
     const S = Store.S; const V = Store.V; const list = App.list();
     const sc = App.scope;
@@ -40,6 +41,7 @@
 
     let body = '';
     if (S.errors && S.errors.length) body += `<div class="g pad-s small warn" style="margin-bottom:12px">${I('alert-triangle', 'sm')} ${U.esc(S.errors[0])}</div>`;
+    const rvN = hasDataQuick() ? App.reviewGroups().length : 0;
     body += `<div class="g hero">
       <div class="row between"><div class="eyebrow">Net worth · ${U.esc(App.scopeLabel())}</div><div class="tiny faint">${S.lastSync ? 'Updated ' + U.ago(S.lastSync) : ''}</div></div>
       <div class="big amt" style="margin-top:6px">${U.money(net)}</div>
@@ -52,6 +54,7 @@
       return { title: 'Clearli', actions: App.scopeBtn() + App.eyeBtn(), body };
     }
 
+    if (rvN) body += `<div class="g pad-s tap row" data-a="goReview" style="margin-top:12px;gap:12px">${UI.bubble('sparkles', S.settings.accent)}<div class="grow"><div class="b">Review ${rvN} merchant${rvN === 1 ? '' : 's'}</div><div class="tiny faint">Clearli wasn't sure — one tap each teaches it</div></div>${I('chevron-right')}</div>`;
     // This month
     body += UI.sec('This month', `<span class="small faint">${U.fmtMonth(now)}</span>`);
     body += `<div class="g pad"><div class="row between" style="align-items:flex-start">
@@ -165,6 +168,7 @@
     if (f.flag === 'pending') list = list.filter((t) => t.pending);
     if (f.flag === 'recurring') list = list.filter((t) => t.recurring);
     if (f.flag === 'uncat') list = list.filter((t) => t.cat === 'other');
+    if (f.flag === 'review') list = list.filter(App.needsReview);
     if (f.flag === 'notes') list = list.filter((t) => t.note || (t.tags && t.tags.length));
     if (f.flag === 'hidden') list = list.filter((t) => t.excluded);
     if (f.flag === 'big') { const th = U.median(list.filter((t) => t.kind === 'expense').map((t) => -t.amt)) * 4; list = list.filter((t) => t.kind === 'expense' && -t.amt >= Math.max(100, th)); }
@@ -199,11 +203,11 @@
     if (f.range === 'custom') body += `<div class="grid2" style="margin:4px 0 8px"><input type="date" class="inp" data-ch="actFrom" value="${f.from}"><input type="date" class="inp" data-ch="actTo" value="${f.to}"></div>`;
     body += `<div class="chips">${[['all', 'Everything'], ['out', 'Spending'], ['in', 'Income'], ['xfer', 'Transfers']].map(([id, l]) => `<button class="chip ${f.type === id ? 'on' : ''}" data-a="actType" data-x="${id}">${l}</button>`).join('')}
       <button class="chip ${cat ? 'on' : ''}" data-a="actCat">${I(cat ? cat.icon : 'tag')}${cat ? U.esc(cat.name) : 'Category'}${cat ? '' : I('chevron-down')}</button>
-      ${[['pending', 'Pending', 'clock'], ['recurring', 'Recurring', 'repeat'], ['uncat', 'Uncategorized', 'circle-help'], ['big', 'Large', 'flame'], ['notes', 'Notes & tags', 'file-text'], ['hidden', 'Hidden', 'eye-off']].map(([id, l, ic]) => `<button class="chip ${f.flag === id ? 'on' : ''}" data-a="actFlag" data-x="${id}">${I(ic)}${l}</button>`).join('')}</div>`;
+      ${[['review', 'Needs review', 'sparkles'], ['pending', 'Pending', 'clock'], ['recurring', 'Recurring', 'repeat'], ['uncat', 'Uncategorized', 'circle-help'], ['big', 'Large', 'flame'], ['notes', 'Notes & tags', 'file-text'], ['hidden', 'Hidden', 'eye-off']].map(([id, l, ic]) => `<button class="chip ${f.flag === id ? 'on' : ''}" data-a="actFlag" data-x="${id}">${I(ic)}${l}</button>`).join('')}</div>`;
     body += `<div id="actList">${App.activityList()}</div>`;
     let floating = '';
     if (f.sel) {
-      floating = `<div class="selbar g"><button class="iconbtn" data-a="selClear">${I('x')}</button><div class="grow b">${f.sel.size} selected</div><button class="btn sm" data-a="selCat" ${f.sel.size ? '' : 'disabled'}>${I('tag', 'sm')}</button><button class="btn sm" data-a="selCompare" ${f.sel.size >= 2 ? '' : 'disabled'}>${I('git-compare-arrows', 'sm')}</button><button class="btn sm" data-a="selHide" ${f.sel.size ? '' : 'disabled'}>${I('eye-off', 'sm')}</button></div>`;
+      floating = `<div class="selbar g"><button class="iconbtn" data-a="selClear">${I('x')}</button><div class="grow b">${f.sel.size} selected</div><button class="btn sm" data-a="selAll">${f.sel.size && f.sel.size >= App.activityFiltered().length ? 'None' : 'All'}</button><button class="btn sm" data-a="selCat" ${f.sel.size ? '' : 'disabled'}>${I('tag', 'sm')}</button><button class="btn sm" data-a="selCompare" ${f.sel.size >= 2 ? '' : 'disabled'}>${I('git-compare-arrows', 'sm')}</button><button class="btn sm" data-a="selHide" ${f.sel.size ? '' : 'disabled'}>${I('eye-off', 'sm')}</button></div>`;
     }
     return { title: 'Activity', actions: App.scopeBtn() + `<button class="iconbtn g" data-a="actSelect">${I(f.sel ? 'x' : 'check')}</button><button class="iconbtn g" data-a="actExport">${I('download')}</button>`, body, floating };
   };
@@ -219,6 +223,7 @@
   UI.on('actMore', () => { App.act.limit += 200; refreshList(); });
   UI.on('actSelect', () => { App.act.sel = App.act.sel ? null : new Set(); App.render(); });
   UI.on('selClear', () => { App.act.sel = null; App.render(); });
+  UI.on('selAll', () => { const all = App.activityFiltered().map((t) => t.parent || t.k); App.act.sel = App.act.sel.size >= all.length ? new Set() : new Set(all); App.render(); });
   UI.on('txSel', (k) => { const s = App.act.sel; if (s.has(k)) s.delete(k); else s.add(k); App.render(); });
   UI.on('selCat', () => {
     const keys = [...App.act.sel];
@@ -247,7 +252,7 @@
       const c = V.catMap[t.cat]; const a = S.accounts[t.acct] || {}; const conn = S.conns[a.conn] || {};
       const ctx = E.txnContext(V, t);
       const monthly = E.series(ctx.all, U.addMonths(U.som(new Date()), -11), U.addMonths(U.som(new Date()), 1), 'month', 0, (x) => Math.abs(x.amt));
-      const srcLbl = { manual: 'Set by you', rule: 'From your rule', learned: 'Learned from your choices', bank: 'From your bank', auto: 'Auto-detected', paired: 'Matched transfer' }[t.catSrc];
+      const srcLbl = ({ manual: 'Set by you', rule: 'From your rule', learned: 'Learned from your choices', bank: 'From your bank', auto: 'Auto-detected', paired: 'Matched transfer', brand: 'Recognized store', keyword: 'Matched by name', words: 'Guessed from the name', model: 'Predicted from your history', default: 'Not sure yet', series: 'From the recurring bill' }[t.catSrc] || 'Auto-detected') + (!SURE[t.catSrc] && t.conf > 0 && t.conf < 0.9 ? ` · ${Math.round(t.conf * 100)}% sure` : '');
       return `<div class="center" style="padding:6px 0 14px">${UI.catBubble(c).replace('class="bubble', 'style="margin:0 auto 10px;width:56px;height:56px;border-radius:18px" class="bubble')}
         <div class="big amt ${t.amt > 0 && t.kind !== 'transfer' ? 'pos' : ''}" style="font-size:36px">${U.money(t.amt, { sign: true })}</div>
         <div class="h3" style="margin-top:6px">${U.esc(t.name)}</div><div class="small faint" style="margin-top:3px">${U.fmtDate(t.ts, { dow: true, year: true })}${t.pending ? ' · <span class="warn">Pending</span>' : ''}</div></div>
@@ -435,4 +440,83 @@
     UI.on('pcNew', () => App.editCategory(null, (id) => { UI.closeSheet(); cb(id); }));
     UI.sheet({ title: 'Choose category', body, full: true });
   };
+
+  /* ======================= Review inbox: merchants Clearli wasn't sure about ======================= */
+  const SURE = { manual: 1, rule: 1, learned: 1, series: 1, paired: 1 };
+  App.needsReview = (t) => !SURE[t.catSrc] && !t.parent && !t.excluded && !t.hiddenAcct && (t.cat === 'other' || t.conf < 0.7) && !(Store.S.reviewed || {})[t.m + (t.amt < 0 ? '-' : '+')];
+  App.reviewGroups = function () {
+    return App.memo('review:' + Object.keys(Store.S.reviewed || {}).length, () => {
+      const V = Store.V; const g = new Map();
+      for (const t of V.list) {
+        if (!App.needsReview(t)) continue;
+        const key = t.m + (t.amt < 0 ? '-' : '+');
+        let o = g.get(key);
+        if (!o) g.set(key, o = { key, m: t.m, sign: t.amt < 0 ? '-' : '+', name: t.name, txs: [], total: 0, cats: {} });
+        o.txs.push(t); o.total += Math.abs(t.amt); o.cats[t.cat] = (o.cats[t.cat] || 0) + 1;
+      }
+      const out = [...g.values()];
+      for (const o of out) {
+        o.txs.sort((a, b) => b.ts - a.ts);
+        o.cat = Object.keys(o.cats).sort((a, b) => o.cats[b] - o.cats[a])[0];
+        o.sugg = App.reviewSuggest(o);
+      }
+      // uncategorized first, then the ones that matter most (count × money)
+      out.sort((a, b) => ((b.cat === 'other') - (a.cat === 'other')) || (b.txs.length * Math.sqrt(b.total) - a.txs.length * Math.sqrt(a.total)));
+      return out;
+    });
+  };
+  App.reviewSuggest = function (o) {
+    const V = Store.V; const t = o.txs[0]; const out = [];
+    const add = (c) => { if (c && V.catMap[c] && !out.includes(c) && ((V.catMap[c].kind === 'expense') === (o.sign === '-') || V.catMap[c].kind === 'transfer')) out.push(c); };
+    if (o.cat !== 'other' && o.cat !== 'income-other') add(o.cat);
+    (t.alts || []).forEach((a) => add(a.cat));
+    if (window.CL && o.sign === '-') {
+      const b = CL.brand(t.desc); if (b) add(CL.byAmount(b.cat, t.amt));
+      add(CL.words(t.desc));
+    }
+    add(E.keywordCategory((t.m + ' | ' + t.desc).toLowerCase(), t.amt));
+    // most-used categories in this direction fill the rest
+    const freq = {};
+    for (const x of V.list) if ((x.amt < 0) === (o.sign === '-') && x.cat !== 'other') freq[x.cat] = (freq[x.cat] || 0) + 1;
+    Object.keys(freq).sort((a, b) => freq[b] - freq[a]).forEach(add);
+    (o.sign === '-' ? ['groceries', 'dining', 'shopping', 'gas', 'transfer'] : ['income', 'income-other', 'transfer']).forEach(add);
+    return out.slice(0, 4);
+  };
+  App.reviewConfirm = function (key, cat) {
+    const V = Store.V; const S = Store.S;
+    const m = key.slice(0, -1); const sign = key.slice(-1);
+    const both = V.list.some((x) => x.m === m && (x.amt < 0 ? '-' : '+') !== sign && !x.pending);
+    const ex = S.rules.find((r) => r.match === 'merchant' && r.pattern === m && !r.sign);
+    if (both || (ex && ex.cat && ex.cat !== cat)) Store.upsertRule({ match: 'merchant', pattern: m, sign, cat, reviewed: true });
+    else Store.upsertRule({ match: 'merchant', pattern: m, cat, reviewed: true });
+    S.reviewed[key] = Date.now();
+  };
+  App.pageDefs.review = function () {
+    const V = Store.V; const gs = App.reviewGroups();
+    let b = `<div class="g pad-s small muted">${I('sparkles', 'sm')} Clearli wasn't sure about these. One tap teaches it the merchant for good — past and future transactions follow, and your choices train your personal model.</div>`;
+    if (!gs.length) return { title: 'Review', body: b + `<div class="sp"></div><div class="g">${UI.empty('check-circle', 'All caught up', 'Every merchant has a confident category.')}</div>` };
+    b += `<div class="row between small" style="margin:12px 6px 4px"><span class="muted">${gs.length} merchant${gs.length === 1 ? '' : 's'} · ${U.num(U.sum(gs, (o) => o.txs.length))} transactions</span></div>`;
+    b += gs.slice(0, 60).map((o) => {
+      const c = V.catMap[o.cat]; const t = o.txs[0];
+      return `<div class="g pad-s rv" style="margin-top:10px"><div class="row" style="align-items:flex-start">${UI.catBubble(c)}<div class="grow" style="min-width:0"><div class="h3 ell">${U.esc(o.name)}</div>
+        <div class="tiny faint ell">${U.esc(t.desc)}</div>
+        <div class="small muted" style="margin-top:2px">${o.txs.length} × · <span class="amt">${U.money(o.total, { whole: o.total >= 100 })}</span> ${o.sign === '-' ? 'spent' : 'received'} · now <b>${U.esc(c.name)}</b></div></div>
+        <button class="iconbtn" data-a="rvOpen" data-x="${U.esc(t.k)}" aria-label="Details">${I('chevron-right')}</button></div>
+        <div class="chips wrap" style="margin-top:10px">${o.sugg.map((id) => { const cc = V.catMap[id]; return `<button class="chip ${id === o.cat ? 'on' : ''}" data-a="rvPick" data-x="${U.esc(o.key)}" data-y="${id}">${I(cc.icon)}${U.esc(cc.name)}</button>`; }).join('')}
+          <button class="chip" data-a="rvMore" data-x="${U.esc(o.key)}">${I('more-horizontal')}Other</button><button class="chip" data-a="rvSkip" data-x="${U.esc(o.key)}">Skip</button></div></div>`;
+    }).join('');
+    return { title: 'Review', body: b };
+  };
+  const rvDone = (key, cat) => {
+    const name = (App.reviewGroups().find((o) => o.key === key) || {}).name || '';
+    App.reviewConfirm(key, cat);
+    Store.commit({ silent: true }); App.render();
+    Store.N.sync('haptic');
+    UI.toast(`${name} → ${Store.V.catMap[cat].name}`, 'sparkles');
+  };
+  UI.on('rvPick', (key, el) => rvDone(key, el.dataset.y));
+  UI.on('rvMore', (key) => { const o = App.reviewGroups().find((x) => x.key === key); App.pickCategory(o && o.cat, (id) => rvDone(key, id)); });
+  UI.on('rvSkip', (key) => { Store.S.reviewed[key] = Date.now(); Store.commit({ silent: true }); App.render(); });
+  UI.on('rvOpen', (k) => App.openTx(k));
+  UI.on('goReview', () => App.push('review'));
 })();

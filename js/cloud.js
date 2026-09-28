@@ -174,7 +174,7 @@
   C.deleteOps = (ids) => C.commit(ids.map((id) => ({ del: U_() + '/ops/' + id })));
 
   /* ---------- diff / apply (shared by web and phone) ---------- */
-  C.SECTIONS = ['rules', 'cats', 'goals', 'assets', 'recurringOverrides', 'conns', 'imports'];
+  C.SECTIONS = ['rules', 'cats', 'goals', 'assets', 'recurringOverrides', 'conns', 'imports', 'reviewed'];
   C.SHARED_SETTINGS = ['apy', 'weekStart', 'currency', 'earlyIncome', 'historyDays'];
   C.ACCT_FIELDS = ['alias', 'type', 'hidden', 'excludeTotals', 'excludeReports'];
   C.baseOf = function (S) {

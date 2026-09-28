@@ -9,6 +9,7 @@
     { id: 'income', name: 'Paycheck', icon: 'briefcase', color: '#43D9B8', kind: 'income' },
     { id: 'bonus', name: 'Bonus', icon: 'sparkles', color: '#FFD166', kind: 'income' },
     { id: 'income-other', name: 'Other Income', icon: 'hand-coins', color: '#9BE15D', kind: 'income' },
+    { id: 'remit', name: 'Money Sent Abroad', icon: 'hand-coins', color: '#FFB547', kind: 'expense', essential: true },
     { id: 'savings', name: 'Savings & Investing', icon: 'piggy-bank', color: '#43D9B8', kind: 'transfer' },
     { id: 'transfer', name: 'Transfers', icon: 'arrow-left-right', color: '#8A93B8', kind: 'transfer' },
     { id: 'housing', name: 'Rent & Mortgage', icon: 'home', color: '#7C8CFF', kind: 'expense', essential: true },
@@ -42,36 +43,37 @@
 
   // Keyword rules: [category, [substrings matched against the lower-cased description]]
   const KW = [
-    ['transfer', ['payment thank you', 'autopay', 'auto pay', 'credit card payment', 'card payment', 'online transfer', 'transfer to', 'transfer from', 'xfer', 'zelle to', 'zelle from', 'venmo cashout', 'internal transfer', 'epay', 'bill pay', 'mobile payment', 'payment - thank', 'online banking transfer', 'crd pmt', 'cardmember serv', 'discover e-payment', 'amex epayment', 'chase credit crd', 'capital one crcardpmt', 'applecard gsbank', 'savings transfer']],
+    ['remit', ['remitly', 'wise inc', 'transferwise', 'wise.com', 'wise us', 'worldremit', 'xoom', 'sendwave', 'ria money', 'ria financial', 'taptap send', 'western union', 'westernunion', 'moneygram', 'remitbee', 'lemfi', 'instarem', 'paysend', 'ace money transfer', 'azimo', 'small world', 'transfergo', 'skrill', 'cash plus', 'boss money', 'intermex', 'viamericas', 'pangea', 'sigue', 'uniteller', 'dolex']],
+    ['transfer', ['cash app', 'cashapp', 'square cash', 'apple cash', 'google pay transfer', 'paypal transfer', 'venmo', 'zelle', 'robinhood', 'fidelity', 'vanguard', 'schwab', 'etrade', 'e trade', 'webull', 'coinbase', 'kraken', 'binance', 'crypto.com', 'acorns', 'stash', 'betterment', 'wealthfront', 'm1 finance', 'public.com', 'marcus', 'ally bank', 'capital one 360', 'discover bank', 'chime', 'varo', 'current card', 'sofi bank', 'payment thank you', 'autopay', 'auto pay', 'credit card payment', 'card payment', 'online transfer', 'transfer to', 'transfer from', 'xfer', 'zelle to', 'zelle from', 'venmo cashout', 'internal transfer', 'epay', 'bill pay', 'mobile payment', 'payment - thank', 'online banking transfer', 'crd pmt', 'cardmember serv', 'discover e-payment', 'amex epayment', 'chase credit crd', 'capital one crcardpmt', 'applecard gsbank', 'savings transfer']],
     ['bonus', ['bonus', 'incentive pay', 'commission']],
     ['income', ['payroll', 'direct dep', 'dir dep', 'salary', 'paycheck', 'adp ', 'gusto', 'paychex', 'workday', 'employer']],
     ['income-other', ['interest paid', 'interest earned', 'int pd', 'dividend', 'cashback', 'cash back reward', 'irs treas', 'tax ref', 'venmo from', 'deposit']],
     ['fees', ['overdraft', 'nsf fee', 'late fee', 'service fee', 'monthly fee', 'maintenance fee', 'atm fee', 'foreign transaction', 'interest charge', 'finance charge', 'annual fee', 'returned item', 'wire fee', ' fee ']],
     ['housing', [' rent ', 'rent payment', 'mortgage', 'apartment', 'property mgmt', 'hoa ', 'homeowners assoc', 'zillow rent', 'bilt ', 'realpage', 'appfolio', 'loancare', 'mr cooper', 'rocket mortgage']],
-    ['utilities', ['electric', 'comed', 'nicor', 'pg&e', 'con ed', 'duke energy', 'water', 'sewer', 'gas co', 'energy', 'utility', 'waste mgmt', 'republic services', 'peoples gas']],
-    ['phone', ['verizon', 't-mobile', 'tmobile', 'at&t', 'att*', 'comcast', 'xfinity', 'spectrum', 'cox comm', 'mint mobile', 'google fi', 'visible', 'cricket', 'internet', 'fiber']],
-    ['groceries', ['grocery', 'whole foods', 'trader joe', 'aldi', 'kroger', 'jewel', 'mariano', 'safeway', 'publix', 'heb ', 'h-e-b', 'meijer', 'wegmans', 'sprouts', 'food lion', 'giant eagle', 'patel brothers', 'costco', 'sams club', "sam's club", 'instacart', 'fresh thyme', 'hmart', 'h mart', 'market', 'halal']],
+    ['utilities', ['pg and e', 'pge ', 'socalgas', 'sdg and e', 'edison', 'xcel', 'dominion', 'ameren', 'entergy', 'consumers energy', 'dte energy', 'we energies', 'firstenergy', 'pseg', 'national grid', 'eversource', 'georgia power', 'fpl', 'florida power', 'aps ', 'srp ', 'txu', 'reliant', 'nv energy', 'puget sound', 'pacific power', 'rocky mountain power', 'atmos', 'spire', 'centerpoint', 'columbia gas', 'piedmont', 'duke energy', 'water dept', 'water utility', 'sanitation', 'trash', 'octopus energy', 'british gas', 'hydro one', 'enbridge', 'electric', 'comed', 'nicor', 'pg&e', 'con ed', 'duke energy', 'water', 'sewer', 'gas co', 'energy', 'utility', 'waste mgmt', 'republic services', 'peoples gas']],
+    ['phone', ['metro by t-mobile', 'metropcs', 'boost mobile', 'us mobile', 'straight talk', 'tracfone', 'consumer cellular', 'ting', 'optimum', 'frontier comm', 'centurylink', 'lumen', 'windstream', 'rcn', 'wow internet', 'astound', 'starlink', 'hughesnet', 'viasat', 'directv', 'dish network', 'sky uk', 'vodafone', 'o2 ', 'ee limited', 'jio', 'airtel', 'rogers', 'bell canada', 'telus', 'fido', 'koodo', 'telstra', 'optus', 'verizon', 't-mobile', 'tmobile', 'at&t', 'att*', 'comcast', 'xfinity', 'spectrum', 'cox comm', 'mint mobile', 'google fi', 'visible', 'cricket', 'internet', 'fiber']],
+    ['groceries', ['walmart grocery', 'amazon fresh', 'freshdirect', 'thrive market', 'misfits market', 'imperfect foods', 'hellofresh', 'blue apron', 'home chef', 'factor meals', 'weee', 'shipt', 'grocery', 'whole foods', 'trader joe', 'aldi', 'kroger', 'jewel', 'mariano', 'safeway', 'publix', 'heb ', 'h-e-b', 'meijer', 'wegmans', 'sprouts', 'food lion', 'giant eagle', 'patel brothers', 'costco', 'sams club', "sam's club", 'instacart', 'fresh thyme', 'hmart', 'h mart', 'market', 'halal']],
     ['coffee', ['starbucks', 'dunkin', 'peet', 'dutch bros', 'tim hortons', 'coffee', 'cafe', 'caribou', 'krispy', 'bakery', 'boba', 'tea ']],
-    ['dining', ['doordash', 'uber eats', 'ubereats', 'grubhub', 'postmates', 'seamless', 'restaurant', 'mcdonald', 'chipotle', 'taco bell', 'wendy', 'burger', 'pizza', 'domino', 'subway', 'chick-fil', 'panera', 'kfc', 'popeyes', 'five guys', 'shake shack', 'sweetgreen', 'panda express', 'olive garden', 'grill', 'kitchen', 'bbq', 'sushi', 'diner', 'tst*', 'toast', 'sq *', 'bar ', 'pub ', 'wingstop', 'jimmy john', 'portillo', 'raising cane', 'noodle', 'thai', 'biryani', 'kabob', 'shawarma']],
-    ['gas', ['shell', 'exxon', 'mobil', 'chevron', 'bp ', 'bp#', 'marathon', 'speedway', 'citgo', 'sunoco', 'valero', 'circle k', 'phillips 66', 'casey', 'wawa', 'sheetz', 'quiktrip', 'gas station', 'fuel', 'costco gas']],
-    ['transport', ['uber', 'lyft', 'metra', 'cta ', 'ventra', 'transit', 'mta ', 'amtrak', 'bird ', 'lime ', 'divvy', 'greyhound', 'taxi']],
+    ['dining', ['instacart restaurant', 'caviar', 'eat24', 'deliveroo', 'just eat', 'swiggy', 'zomato', 'foodpanda', 'skipthedishes', 'menulog', 'wolt', 'glovo', 'talabat', 'rappi', 'ifood', 'ezcater', 'slice pizza', 'chowbus', 'gopuff', 'doordash', 'uber eats', 'ubereats', 'grubhub', 'postmates', 'seamless', 'restaurant', 'cafeteria', 'canteen', 'mcdonald', 'chipotle', 'taco bell', 'wendy', 'burger', 'pizza', 'domino', 'subway', 'chick-fil', 'panera', 'kfc', 'popeyes', 'five guys', 'shake shack', 'sweetgreen', 'panda express', 'olive garden', 'grill', 'kitchen', 'bbq', 'sushi', 'diner', 'tst*', 'toast', 'sq *', 'bar ', 'pub ', 'wingstop', 'jimmy john', 'portillo', 'raising cane', 'noodle', 'thai', 'biryani', 'kabob', 'shawarma']],
+    ['gas', ['chargepoint', 'electrify america', 'evgo', 'tesla supercharger', 'blink charging', 'shell recharge', 'shell', 'exxonmobil', 'exxon', 'mobil', 'chevron', 'bp ', 'bp#', 'marathon', 'speedway', 'citgo', 'sunoco', 'valero', 'circle k', 'phillips 66', 'casey', 'wawa', 'sheetz', 'quiktrip', 'gas station', 'fuel', 'costco gas']],
+    ['transport', ['parkmobile', 'park mobile', 'paybyphone', 'spothero', 'ventra', 'clipper', 'orca', 'smartrip', 'presto', 'oyster', 'bolt.eu', 'grab', 'ola cabs', 'didi', 'waymo', 'revel', 'citi bike', 'lime', 'bird ', 'e-zpass', 'ipass', 'fastrak', 'sunpass', 'txtag', 'peach pass', 'illinois tollway', 'turnpike', 'uber', 'lyft', 'metra', 'cta ', 'ventra', 'transit', 'mta ', 'amtrak', 'bird ', 'lime ', 'divvy', 'greyhound', 'taxi']],
     ['auto', ['parking', 'parkwhiz', 'spothero', 'toll', 'ipass', 'e-zpass', 'ezpass', 'jiffy lube', 'autozone', 'o reilly', 'advance auto', 'car wash', 'firestone', 'midas', 'dmv', 'secretary of state', 'tesla supercharger', 'valvoline', 'discount tire']],
-    ['insurance', ['insurance', 'geico', 'state farm', 'progressive', 'allstate', 'liberty mutual', 'lemonade', 'usaa ins', 'farmers ins', 'nationwide']],
-    ['health', ['pharmacy', 'cvs', 'walgreens', 'rite aid', 'hospital', 'clinic', 'medical', 'dental', 'dentist', 'doctor', 'labcorp', 'quest diag', 'vision', 'optometr', 'urgent care', 'health', 'hosp', 'physician', 'therapy', 'chiropract', 'kaiser', 'copay']],
-    ['subscriptions', ['netflix', 'spotify', 'hulu', 'disney plus', 'disney+', 'hbo', 'max.com', 'paramount', 'peacock', 'youtube', 'apple.com/bill', 'apple com bill', 'itunes', 'icloud', 'google storage', 'google one', 'amazon prime', 'prime video', 'audible', 'kindle unlimited', 'patreon', 'onlyfans', 'dropbox', 'adobe', 'microsoft 365', 'msft', 'openai', 'chatgpt', 'anthropic', 'claude.ai', 'github', 'notion', 'canva', 'duolingo', 'nytimes', 'wsj', 'substack', 'siriusxm', 'pandora', 'crunchyroll', 'playstation', 'xbox', 'nintendo', 'twitch', 'linkedin', '1password', 'lastpass', 'nordvpn', 'expressvpn', 'grammarly', 'calm', 'headspace', 'subscription', 'membership']],
-    ['fitness', ['gym', 'planet fitness', 'la fitness', 'equinox', 'orangetheory', 'peloton', 'crossfit', 'yoga', 'lifetime fitness', 'life time', 'anytime fitness', 'ymca', 'strava', 'classpass']],
+    ['insurance', ['usaa', 'travelers ins', 'metlife', 'prudential', 'aflac', 'mutual of omaha', 'the hartford', 'american family', 'erie insurance', 'root insurance', 'hippo', 'kin insurance', 'policygenius', 'ladder life', 'haven life', 'bestow', 'root ins', 'safeco', 'esurance', 'mercury ins', 'amica', 'kemper', 'nationwide', 'lemonade', 'insurance', 'geico', 'state farm', 'progressive', 'allstate', 'liberty mutual', 'lemonade', 'usaa ins', 'farmers ins', 'nationwide']],
+    ['health', ['cvs', 'walgreens', 'rite aid', 'goodrx', 'capsule', 'amazon pharmacy', 'teladoc', 'mdlive', 'one medical', 'zocdoc', 'lensa', '1-800 contacts', 'warby parker', 'labcorp', 'quest diagnostics', 'minuteclinic', 'hims', 'hers ', 'nurx', 'ro.co', 'betterhelp', 'talkspace', 'cerebral', 'pharmacy', 'cvs', 'walgreens', 'rite aid', 'hospital', 'clinic', 'medical', 'dental', 'dentist', 'doctor', 'labcorp', 'quest diag', 'vision', 'optometr', 'urgent care', 'health', 'hosp', 'physician', 'therapy', 'chiropract', 'kaiser', 'copay']],
+    ['subscriptions', ['youtube premium', 'youtubepremium', 'google play', 'amazon music', 'apple music', 'apple tv', 'audible', 'max.com', 'hbo max', 'discovery+', 'espn+', 'fubo', 'sling', 'philo', 'dazn', 'nordvpn', 'surfshark', 'proton', 'bitwarden', 'dashlane', 'evernote', 'zoom.us', 'zoom video', 'slack', 'figma', 'jetbrains', 'midjourney', 'perplexity', 'cursor', 'x corp', 'twitter blue', 'medium.com', 'scribd', 'blinkist', 'masterclass', 'skillshare', 'brilliant', 'babbel', 'rosetta', 'noom', 'strava', 'tinder', 'bumble', 'hinge', 'match.com', 'onedrive', 'google workspace', 'gsuite', 'godaddy', 'namecheap', 'squarespace', 'wix.com', 'shopify', 'mailchimp', 'hostinger', 'bluehost', 'digitalocean', 'aws', 'amazon web services', 'cloudflare', 'heroku', 'vercel', 'netlify', 'ring.com', 'ring protect', 'simplisafe', 'adt security', 'nest aware', 'siriusxm', 'tidal', 'deezer', 'apple one', 'netflix', 'spotify', 'hulu', 'disney plus', 'disney+', 'hbo', 'max.com', 'paramount', 'peacock', 'youtube', 'apple.com/bill', 'apple com bill', 'itunes', 'icloud', 'google storage', 'google one', 'amazon prime', 'prime video', 'audible', 'kindle unlimited', 'patreon', 'onlyfans', 'dropbox', 'adobe', 'microsoft 365', 'msft', 'openai', 'chatgpt', 'anthropic', 'claude.ai', 'github', 'notion', 'canva', 'duolingo', 'nytimes', 'wsj', 'substack', 'siriusxm', 'pandora', 'crunchyroll', 'playstation', 'xbox', 'nintendo', 'twitch', 'linkedin', '1password', 'lastpass', 'nordvpn', 'expressvpn', 'grammarly', 'calm', 'headspace', 'subscription', 'membership']],
+    ['fitness', ['classpass', 'peloton', 'orangetheory', 'f45', 'crunch fitness', '24 hour fitness', 'anytime fitness', 'gold s gym', 'equinox', 'lifetime', 'ymca', 'xsport', 'eos fitness', 'blink fitness', 'club pilates', 'pure barre', 'solidcore', 'soulcycle', 'mindbody', 'gym', 'planet fitness', 'la fitness', 'equinox', 'orangetheory', 'peloton', 'crossfit', 'yoga', 'lifetime fitness', 'life time', 'anytime fitness', 'ymca', 'strava', 'classpass']],
     ['entertainment', ['cinema', 'amc ', 'regal', 'movie', 'theater', 'theatre', 'ticketmaster', 'stubhub', 'eventbrite', 'steam', 'bowling', 'concert', 'museum', 'zoo', 'arcade', 'golf', 'topgolf']],
-    ['travel', ['airline', 'airlines', 'delta air', 'united air', 'american air', 'southwest', 'spirit air', 'frontier', 'jetblue', 'alaska air', 'hotel', 'marriott', 'hilton', 'hyatt', 'airbnb', 'vrbo', 'expedia', 'booking.com', 'priceline', 'hertz', 'avis', 'enterprise rent', 'budget rent', 'turo', 'tsa ']],
-    ['education', ['tuition', 'university', 'college', 'school', 'coursera', 'udemy', 'edx', 'pluralsight', 'books', 'chegg', 'student']],
-    ['kids', ['daycare', 'childcare', 'kindercare', 'bright horizons', 'babies', 'buy buy baby', 'carters', "carter's", 'toys', 'lego', 'kids']],
+    ['travel', ['hotels.com', 'vrbo', 'agoda', 'trip.com', 'kayak', 'hopper', 'orbitz', 'travelocity', 'priceline', 'southwest', 'american airlines', 'aa.com', 'delta.com', 'united.com', 'alaska air', 'jetblue', 'spirit airl', 'frontier airl', 'allegiant', 'air canada', 'westjet', 'british airways', 'lufthansa', 'emirates', 'qatar airways', 'etihad', 'turkish airl', 'air india', 'indigo', 'pia ', 'saudia', 'klm', 'air france', 'ryanair', 'easyjet', 'amtrak', 'greyhound', 'flixbus', 'megabus', 'sixt', 'turo', 'national car rental', 'alamo', 'thrifty', 'dollar rent', 'enterprise rent', 'airline', 'airlines', 'delta air', 'united air', 'american air', 'southwest', 'spirit air', 'frontier', 'jetblue', 'alaska air', 'hotel', 'marriott', 'hilton', 'hyatt', 'airbnb', 'vrbo', 'expedia', 'booking.com', 'priceline', 'hertz', 'avis', 'enterprise rent', 'budget rent', 'turo', 'tsa ']],
+    ['education', ['coursera', 'udemy', 'edx', 'udacity', 'linkedin learning', 'pluralsight', 'datacamp', 'khan academy', 'chegg', 'quizlet', 'course hero', 'kaplan', 'princeton review', 'college board', 'ets toefl', 'pearson vue', 'prometric', 'aws training', 'comptia', 'isc2', 'pmi.org', 'tuition', 'bursar', 'student account', 'tuition', 'university', 'college', 'school', 'coursera', 'udemy', 'edx', 'pluralsight', 'books', 'chegg', 'student']],
+    ['kids', ['brightwheel', 'procare', 'kindercare', 'goddard school', 'tutor time', 'primrose school', 'learning care', 'la petite', 'childtime', 'kumon', 'mathnasium', 'sylvan', 'gymboree', 'little gym', 'camp ', 'daycare', 'childcare', 'kindercare', 'bright horizons', 'babies', 'buy buy baby', 'carters', "carter's", 'toys', 'lego', 'kids']],
     ['personal', ['salon', 'barber', 'spa ', 'nails', 'ulta', 'sephora', 'great clips', 'supercuts', 'massage', 'cosmetic']],
     ['pets', ['petco', 'petsmart', 'chewy', 'vet ', 'veterinary', 'banfield', 'rover']],
-    ['gifts', ['donation', 'charity', 'gofundme', 'red cross', 'unicef', 'church', 'mosque', 'masjid', 'zakat', 'sadaqah', 'islamic relief', 'temple', 'gift']],
+    ['gifts', ['gofundme', 'givebutter', 'launchgood', 'islamic relief', 'zakat', 'masjid', 'mosque', 'church', 'tithe', 'unicef', 'red cross', 'st jude', 'doctors without borders', 'salvation army', 'goodwill donation', 'paypal giving', 'benevity', '1-800-flowers', 'ftd', 'edible arrangements', 'donation', 'charity', 'gofundme', 'red cross', 'unicef', 'church', 'mosque', 'masjid', 'zakat', 'sadaqah', 'islamic relief', 'temple', 'gift']],
     ['home', ['home depot', 'lowe', 'ikea', 'wayfair', 'bed bath', 'menards', 'ace hardware', 'true value', 'crate & barrel', 'pottery barn', 'homegoods', 'furniture']],
     ['taxes', ['irs ', 'tax payment', 'state tax', 'property tax', 'franchise tax', 'dept of revenue', 'treasury']],
-    ['loans', ['loan', 'navient', 'nelnet', 'sallie mae', 'mohela', 'great lakes', 'aidvantage', 'sofi', 'upstart', 'lending club', 'auto finance', 'toyota financial', 'honda finance', 'ally auto', 'affirm', 'klarna', 'afterpay']],
+    ['loans', ['upstart', 'best egg', 'lendingclub', 'prosper', 'avant', 'oportun', 'onemain', 'mariner finance', 'discover personal', 'sofi loan', 'earnest', 'laurel road', 'rocket loans', 'car payment', 'ford credit', 'gm financial', 'hyundai motor finance', 'kia finance', 'nissan motor', 'bmw financial', 'tesla finance', 'capital one auto', 'chase auto', 'wells fargo auto', 'westlake', 'credit acceptance', 'santander consumer', 'carvana', 'sezzle', 'zip pay', 'splitit', 'uplift', 'paypal credit', 'katapult', 'snap finance', 'progressive leasing', 'acima', 'loan', 'navient', 'nelnet', 'sallie mae', 'mohela', 'great lakes', 'aidvantage', 'sofi', 'upstart', 'lending club', 'auto finance', 'toyota financial', 'honda finance', 'ally auto', 'affirm', 'klarna', 'afterpay']],
     ['cash', ['atm withdrawal', 'atm w/d', 'cash withdrawal', 'atm ']],
-    ['shopping', ['amazon', 'amzn', 'walmart', 'target', 'best buy', 'ebay', 'etsy', 'shein', 'temu', 'nike', 'adidas', 'old navy', 'gap ', 'h&m', 'zara', 'uniqlo', 'macy', 'nordstrom', 'kohl', 'tj maxx', 'marshalls', 'ross ', 'apple store', 'dollar tree', 'dollar general', 'five below', 'michaels', 'hobby lobby', 'joann', 'staples', 'office depot', 'shop', 'store', 'outlet', 'mall']],
+    ['shopping', ['temu', 'shein', 'aliexpress', 'alibaba', 'wish.com', 'wayfair', 'overstock', 'chewy', 'zappos', 'asos', 'boohoo', 'fashion nova', 'poshmark', 'mercari', 'depop', 'offerup', 'stockx', 'goat ', 'nordstrom rack', 'saks', 'bloomingdale', 'neiman', 'uniqlo', 'lululemon', 'aerie', 'american eagle', 'abercrombie', 'hollister', 'forever 21', 'victoria', 'bath and body', 'skims', 'apple.com/us', 'apple store', 'samsung', 'dell', 'lenovo', 'newegg', 'b and h photo', 'micro center', 'gamestop', 'steam games', 'epic games', 'nintendo', 'playstation network', 'xbox', 'flipkart', 'myntra', 'meesho', 'noon.com', 'lazada', 'shopee', 'mercado', 'rakuten', 'argos', 'john lewis', 'currys', 'canadian tire', 'amazon', 'amzn', 'walmart', 'target', 'best buy', 'ebay', 'etsy', 'shein', 'temu', 'nike', 'adidas', 'old navy', 'gap ', 'h&m', 'zara', 'uniqlo', 'macy', 'nordstrom', 'kohl', 'tj maxx', 'marshalls', 'ross ', 'apple store', 'dollar tree', 'dollar general', 'five below', 'michaels', 'hobby lobby', 'joann', 'staples', 'office depot', 'shop', 'store', 'outlet', 'mall']],
   ];
 
   /* ======================= Merchant normalization ======================= */
@@ -125,31 +127,58 @@
     if (v === undefined) { v = kwRaw(descLower, amt); KWC.set(ck, v); }
     return v;
   };
+  // Generic "pay" words: the payment is really for whatever else is named ("T-MOBILE AUTOPAY" = phone bill)
+  const WEAK_XFER = new Set(['autopay', 'auto pay', 'epay', 'bill pay', 'mobile payment']);
+  const isL = (c) => c >= 'a' && c <= 'z';
+  // Keyword must start at a word edge; short keywords must also end at one (plural "s" allowed):
+  // stops "aws" matching inside "loblaws" and "mobil" inside "mobile".
+  function hit(d, w) {
+    let i = d.indexOf(w);
+    while (i >= 0) {
+      const okL = !isL(w[0]) || !isL(d[i - 1]);
+      let okR = true;
+      const e = i + w.length;
+      if (isL(w[w.length - 1])) {
+        if (w.length <= 5) okR = !isL(d[e]) || (d[e] === 's' && !isL(d[e + 1]));
+        if (/auto$/.test(w) && d.substr(e, 3) === 'pay') okR = false;
+      }
+      if (okL && okR) return true;
+      i = d.indexOf(w, i + 1);
+    }
+    return false;
+  }
   const kwRaw = function (descLower, amt) {
     const d = ' ' + descLower + ' ';
+    let weak = null;
     for (const [cat, words] of KW) {
       for (const w of words) {
-        if (d.indexOf(w) >= 0) {
+        if (hit(d, w)) {
           if ((cat === 'income' || cat === 'bonus') && amt < 0) continue;
           if (cat === 'income-other' && amt < 0) continue;
           if (cat === 'utilities' && w === 'water' && /(waterfront|watermelon)/.test(d)) continue;
           if (cat === 'groceries' && w === 'market' && /(marketplace|mktp)/.test(d)) continue;
+          if (cat === 'transfer' && WEAK_XFER.has(w)) { weak = cat; break; }
+          if (weak && !STRUCTISH.has(cat)) continue;
           return cat;
         }
       }
     }
-    return null;
+    return weak;
   };
+  // after a generic "autopay", only bill-type categories may take over
+  const STRUCTISH = new Set(['remit', 'fees', 'housing', 'utilities', 'phone', 'insurance', 'subscriptions', 'loans', 'taxes', 'fitness', 'education', 'kids']);
 
   /* ======================= Derivation (categorize every txn) ======================= */
   // Builds a fast in-memory view: arrays of txns with derived fields.
   const MK = new Map();
+  const V_MODEL = {};
+  E.model = () => V_MODEL.model;
   E.derive = function (S) {
     const catMap = {};
     for (const c of S.cats) catMap[c.id] = c;
     const merchRules = {}; const containsRules = [];
     for (const r of S.rules) {
-      if (r.match === 'merchant') merchRules[r.pattern] = r; else containsRules.push(r);
+      if (r.match === 'merchant') merchRules[r.pattern + (r.sign ? '|' + r.sign : '')] = r; else containsRules.push(r);
     }
     containsRules.sort((a, b) => b.pattern.length - a.pattern.length);
     const mkOf = (t) => { const base = t.payee || t.desc; let m = MK.get(base); if (m === undefined) { m = E.merchantKey(base); MK.set(base, m); } return m; };
@@ -175,8 +204,9 @@
       const e = S.edits[key] || {};
       const m = mkOf(t);
       const low = (m + ' | ' + t.desc + ' ' + (t.payee || '') + ' ' + (t.memo || '')).toLowerCase();
-      let cat = null, name = null, src = 'auto';
-      const mr = merchRules[m];
+      let cat = null, name = null, src = 'auto', conf = 1;
+      const mrS = merchRules[m + '|' + (t.amt < 0 ? '-' : '+')]; const mrU = merchRules[m];
+      const mr = mrS && mrS.cat ? mrS : mrU;
       let cr = null;
       for (const r of containsRules) { if (low.indexOf(r.pattern.toLowerCase()) >= 0) { cr = r; break; } }
       if (e.cat) { cat = e.cat; src = 'manual'; }
@@ -184,16 +214,17 @@
       else if (cr && cr.cat) { cat = cr.cat; src = 'rule'; }
       else if (learnedCat[m + (t.amt < 0 ? '-' : '+')]) { cat = learnedCat[m + (t.amt < 0 ? '-' : '+')]; src = 'learned'; }
       else if (t.bankCat === 'transfer') { cat = 'transfer'; src = 'bank'; }
-      if (e.name) name = e.name; else if (mr && mr.rename) name = mr.rename; else if (cr && cr.rename) name = cr.rename; else if (learnedName[m]) name = learnedName[m].name;
+      if (e.name) name = e.name; else if (mrU && mrU.rename) name = mrU.rename; else if (mrS && mrS.rename) name = mrS.rename; else if (cr && cr.rename) name = cr.rename; else if (learnedName[m]) name = learnedName[m].name;
       if (!cat) {
-        cat = E.keywordCategory(low, t.amt);
-        if (!cat && t.bankCat && catMap[t.bankCat]) { cat = t.bankCat; src = 'bank'; }
-        if (!cat) cat = t.amt > 0 ? 'income-other' : 'other';
+        const a2 = window.CL ? CL.auto(t.payee || t.desc, low, t.amt, catMap) : null;
+        if (a2) { cat = a2.cat; src = a2.src; conf = a2.conf; }
+        else if (t.bankCat && catMap[t.bankCat]) { cat = t.bankCat; src = 'bank'; conf = 0.6; }
+        if (!cat) { cat = t.amt > 0 ? 'income-other' : 'other'; src = 'default'; conf = t.amt > 0 ? 0.5 : 0; }
       }
-      if (!catMap[cat]) cat = t.amt > 0 ? 'income-other' : 'other';
+      if (!catMap[cat]) { cat = t.amt > 0 ? 'income-other' : 'other'; src = 'default'; conf = 0; }
       const item = {
         k: key, id: t.id, acct: t.acct, conn: a.conn, ts: t.ts, rts: t.ts, amt: t.amt, desc: t.desc, pending: !!t.pending,
-        m, name: name || E.titleCase(m), rawName: E.titleCase(m), cat, catSrc: src, note: e.note || '', tags: e.tags || [],
+        m, name: name || E.titleCase(m), rawName: E.titleCase(m), cat, catSrc: src, conf, note: e.note || '', tags: e.tags || [],
         excluded: !!e.excluded || !!a.excludeReports, hiddenAcct: !!a.hidden, imp: t.imp || null, month: e.month || null,
       };
       // A split turns one bank transaction into parts (e.g. salary + bonus) that report separately.
@@ -201,8 +232,31 @@
         e.splits.forEach((p, i) => list.push(Object.assign({}, item, { k: key + '~' + i, parent: key, amt: p.amt, cat: catMap[p.cat] ? p.cat : item.cat, catSrc: 'manual', part: i, partNote: p.note || '' })));
       } else list.push(item);
     }
+    // Personal model: learns from everything the user confirmed (manual picks, rules, learned merchants)
+    // and fills in automatic guesses when it is confident. Retrained on every change — it's tiny.
+    const CONFIRMED = { manual: 1, rule: 1, learned: 1, series: 1 };
+    let model = null;
+    if (window.CL) {
+      const ex = [];
+      for (const t of list) if (CONFIRMED[t.catSrc] && !t.parent) ex.push({ f: CL.features(t.desc, t.amt, t.acct, t.m), cat: t.cat });
+      model = CL.train(ex);
+      V_MODEL.model = model;
+      if (model.n >= 15) {
+        for (const t of list) {
+          if (CONFIRMED[t.catSrc] || t.parent) continue;
+          const p = CL.predict(model, CL.features(t.desc, t.amt, t.acct, t.m));
+          if (!p || !p.wordSeen || !catMap[p.cat]) continue;
+          t.alts = p.alts;
+          const need = t.catSrc === 'default' ? 0.6 : t.catSrc === 'words' || t.catSrc === 'bank' ? 0.7 : 0.9;
+          const sameKind = (catMap[p.cat].kind === 'transfer') === (catMap[t.cat].kind === 'transfer');
+          if (p.p >= need && p.cat !== t.cat && (sameKind || t.catSrc === 'default')) { t.cat = p.cat; t.catSrc = 'model'; t.conf = p.p; }
+          else if (p.cat === t.cat) t.conf = Math.max(t.conf, p.p);
+        }
+      }
+    }
     // Auto transfer pairing: opposite amounts across own accounts within 4 days.
-    const byAbs = U.groupBy(list.filter((t) => t.catSrc === 'auto' && catMap[t.cat].kind !== 'transfer'), (t) => Math.round(Math.abs(t.amt) * 100));
+    const AUTO_SRC = { auto: 1, keyword: 1, brand: 1, words: 1, default: 1, model: 1, bank: 1 };
+    const byAbs = U.groupBy(list.filter((t) => AUTO_SRC[t.catSrc] && catMap[t.cat].kind !== 'transfer'), (t) => Math.round(Math.abs(t.amt) * 100));
     for (const [, grp] of byAbs) {
       if (grp.length < 2) continue;
       const used = new Set();
@@ -210,7 +264,7 @@
         if (x.amt >= 0 || used.has(x.k)) continue;
         for (const y of grp) {
           if (y.amt <= 0 || used.has(y.k) || y.acct === x.acct) continue;
-          if (Math.abs(y.ts - x.ts) <= 4 * DAY) { x.cat = 'transfer'; y.cat = 'transfer'; x.catSrc = y.catSrc = 'paired'; used.add(x.k); used.add(y.k); break; }
+          if (Math.abs(y.ts - x.ts) <= 4 * DAY) { x.cat = 'transfer'; y.cat = 'transfer'; x.catSrc = y.catSrc = 'paired'; x.conf = y.conf = 0.85; used.add(x.k); used.add(y.k); break; }
         }
       }
     }
