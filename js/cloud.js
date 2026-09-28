@@ -54,10 +54,12 @@
   const docName = (p) => `projects/${C.config.projectId}/databases/(default)/documents/${p}`;
   const toF = (o) => { const f = {}; for (const k in o) { const v = o[k]; if (typeof v === 'number') f[k] = Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v }; else if (typeof v === 'boolean') f[k] = { booleanValue: v }; else if (v != null) f[k] = { stringValue: String(v) }; } return { fields: f }; };
   const fromF = (d) => { const o = {}; const f = (d && d.fields) || {}; for (const k in f) { const v = f[k]; o[k] = 'integerValue' in v ? Number(v.integerValue) : 'doubleValue' in v ? v.doubleValue : 'booleanValue' in v ? v.booleanValue : v.stringValue; } if (d && d.name) o._id = d.name.split('/').pop(); return o; };
-  const fsErr = (r) => { const m = (r.json && r.json.error && (r.json.error.status || r.json.error.message)) || 'HTTP ' + r.status; return new Error(r.status === 403 ? 'Firestore denied access — check the security rules.' : r.status === 404 && /database/i.test(r.text || '') ? 'Firestore database not created yet.' : 'Cloud error: ' + m); };
+  // A missing document is also a 404 whose message mentions "databases/(default)" — only this wording means the database itself is missing.
+  const noDb = (r) => r.status === 404 && /does not exist for project/i.test(r.text || '');
+  const fsErr = (r) => { const m = (r.json && r.json.error && (r.json.error.message || r.json.error.status)) || 'HTTP ' + r.status; return new Error(r.status === 403 ? 'Firestore denied access — check the security rules.' : noDb(r) ? 'Firestore database not created yet.' : 'Cloud error: ' + m); };
   C.get = async function (path) {
     const r = await C.http('GET', base() + '/' + path, { headers: { Authorization: 'Bearer ' + await C.token() } });
-    if (r.status === 404 && !/database/i.test(r.text || '')) return null;
+    if (r.status === 404 && !noDb(r)) return null;
     if (r.status !== 200) throw fsErr(r);
     return fromF(r.json);
   };
