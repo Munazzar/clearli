@@ -70,7 +70,7 @@
     Store.recompute();
   };
   const saveNow = () => { N.sync('saveData', JSON.stringify(Store.S)); };
-  Store.save = U.debounce(saveNow, 400);
+  Store.save = U.debounce(saveNow, 800);
   Store.saveNow = saveNow;
   Store.recompute = function () {
     const S = Store.S;

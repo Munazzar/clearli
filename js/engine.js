@@ -118,7 +118,14 @@
   const KEEP = new Set(['the', 'and', 'of', 'bar', 'pub', 'gas', 'car', 'tea', 'pet', 'one', 'new', 'my', 'go', 'to', 'by', 'at', 'in', 'on', 'for', 'joe', 'bob', 'max', 'ace', 'big', 'fun', 'fit', 'box', 'air', 'day', 'spa', 'zoo', 'inn', 'way', 'pay', 'eat', 'hut', 'co', 'st', 'ave', 'art', 'bay', 'sun', 'sea', 'red', 'top', 'hot', 'mix', 'pro', 'lab', 'kid', 'dog', 'cat', 'tax', 'fee', 'atm', 's']);
   E.titleCase = (s) => String(s).toLowerCase().replace(/([a-z]) s\b/g, "$1's").replace(/[a-z0-9&'+.]+/g, (w) => (w.length <= 3 && !KEEP.has(w) && /^[a-z&]+$/.test(w) ? w.toUpperCase() : w)).replace(/\b([a-z])/g, (m, c) => c.toUpperCase()).replace(/\b(Of|And|The)\b/g, (w) => w.toLowerCase()).replace(/'S\b/g, "'s");
 
+  const KWC = new Map();
   E.keywordCategory = function (descLower, amt) {
+    const ck = (amt < 0 ? '-' : '+') + descLower;
+    let v = KWC.get(ck);
+    if (v === undefined) { v = kwRaw(descLower, amt); KWC.set(ck, v); }
+    return v;
+  };
+  const kwRaw = function (descLower, amt) {
     const d = ' ' + descLower + ' ';
     for (const [cat, words] of KW) {
       for (const w of words) {
@@ -431,77 +438,99 @@
     { id: 'yearly', lo: 350, hi: 380, days: 365.25, perMonth: 1 / 12 },
   ];
   E.FREQS = FREQS;
+  const VARIABLE_BILLS = new Set(['utilities', 'phone', 'insurance', 'health', 'loans', 'taxes', 'kids', 'education', 'housing', 'auto', 'gas', 'transport']);
+  // Turns one run of same-merchant transactions into a recurring item (or null if it isn't one).
+  // opts: {forced, freq ('auto'|FREQ id), manual}
+  function evalSeries(V, key, mk, txs, opts) {
+    const ov = V.S.recurringOverrides || {}; const now = Date.now();
+    opts = opts || {};
+    const pts = [];
+    for (const t of txs) { const last = pts[pts.length - 1]; if (last && U.daysBetween(last.ts, t.ts) === 0) { last.amt += t.amt; last.items.push(t); } else pts.push({ ts: t.ts, amt: t.amt, items: [t] }); }
+    if (!pts.length || (pts.length < 2 && !opts.manual)) return null;
+    const iv = []; for (let i = 1; i < pts.length; i++) iv.push(U.daysBetween(pts[i - 1].ts, pts[i].ts));
+    const med = iv.length ? U.median(iv) : 30;
+    let f = opts.freq && opts.freq !== 'auto' ? FREQS.find((x) => x.id === opts.freq) : FREQS.find((x) => med >= x.lo && med <= x.hi);
+    if (!f && opts.forced) f = FREQS.reduce((best, x) => (Math.abs(x.days - med) < Math.abs(best.days - med) ? x : best), FREQS[2]);
+    if (!f) return null;
+    const within = iv.length ? iv.filter((d) => d >= f.lo - 2 && d <= f.hi + 2).length / iv.length : 1;
+    const amts = pts.map((p) => Math.abs(p.amt));
+    const medAmt = U.median(amts.slice(-4));
+    const cv = U.stdev(amts.slice(-6)) / (U.mean(amts.slice(-6)) || 1);
+    const cat0 = pts[pts.length - 1].items[0].cat;
+    // Bills like electricity change every month: if they arrive like clockwork, the amount can vary a lot.
+    const maxCv = (VARIABLE_BILLS.has(cat0) && pts.length >= 3) || (within >= 0.85 && pts.length >= 4) ? 0.9 : 0.45;
+    const minN = f.id === 'yearly' || f.id === 'quarterly' ? 2 : f.id === 'monthly' ? 3 : 4;
+    if (!opts.forced && (pts.length < minN || within < 0.6 || cv > maxCv)) return null;
+    // two charges a quarter/year apart only count if the price is identical (and never for pieces split out by amount)
+    if (!opts.forced && pts.length < 3 && (f.id === 'quarterly' || f.id === 'yearly') && (cv > 0.02 || key.indexOf('#') >= 0)) return null;
+    if (!opts.forced && key.indexOf('#') >= 0 && pts.length < 4) return null;
+    const lastP = pts[pts.length - 1];
+    const active = U.daysBetween(lastP.ts, now) <= f.hi * 1.5 + 5;
+    let next;
+    if (f.id === 'monthly') { next = U.addMonths(new Date(lastP.ts), 1); while (+next < U.sod(now) - DAY) next = U.addMonths(next, 1); }
+    else if (f.id === 'quarterly') { next = U.addMonths(new Date(lastP.ts), 3); }
+    else if (f.id === 'yearly') { next = U.addMonths(new Date(lastP.ts), 12); }
+    else { next = U.addDays(new Date(lastP.ts), f.days); while (+next < U.sod(now) - DAY) next = U.addDays(next, f.days); }
+    let priceChange = null;
+    if (amts.length >= 2) {
+      const cur = amts[amts.length - 1];
+      let j = amts.length - 2;
+      while (j >= 0 && Math.abs(amts[j] - cur) / cur < 0.05) j--;
+      if (j >= 0) {
+        const prev = amts[j]; const at = pts[j + 1].ts;
+        const before = amts.slice(Math.max(0, j - 3), j + 1);
+        const stable = before.length >= 2 ? U.stdev(before) / (U.mean(before) || 1) < 0.03 : true;
+        if (stable && Math.abs(cur - prev) >= 1 && now - at < 183 * DAY) priceChange = { from: prev, to: cur, pct: (cur - prev) / prev, at };
+      }
+    }
+    if (ov[key + '|nohike'] || cv > 0.45) priceChange = null;
+    const t0 = lastP.items[lastP.items.length - 1];
+    const sign = lastP.amt < 0 ? -1 : 1;
+    return {
+      key, m: mk, name: t0.name, cat: t0.cat, kind: t0.kind, acct: t0.acct, freq: f.id, f, amount: sign * medAmt, last: lastP.ts, next: +next, count: pts.length,
+      active, monthly: sign * medAmt * f.perMonth, yearly: sign * medAmt * f.perMonth * 12, priceChange, history: txs, forced: !!opts.forced, manual: opts.manual || null,
+      variable: cv > 0.15, dom: new Date(lastP.ts).getDate(),
+    };
+  }
+  E.manualMatches = function (V, ms) {
+    return V.list.filter((t) => t.m === ms.m && !t.pending && !t.hiddenAcct && (t.amt < 0 ? -1 : 1) === ms.sign && (ms.anyAmt || Math.abs(Math.abs(t.amt) - ms.amt) <= Math.max(1, ms.amt * 0.1))).sort((a, b) => a.ts - b.ts);
+  };
   E.detectRecurring = function (V) {
     const S = V.S;
     const ov = S.recurringOverrides || {};
-    const now = Date.now();
-    const groups = U.groupBy(V.list.filter((t) => t.kind !== 'transfer' && !t.pending && !t.hiddenAcct), (t) => t.m + '|' + (t.amt < 0 ? '-' : '+'));
-    const out = [];
+    const out = []; const claimed = new Set();
+    // 1) series the user marked by hand (a specific amount, or any amount for bills that vary)
+    for (const k in ov) {
+      if (k.slice(0, 4) !== 'man:' || !ov[k] || typeof ov[k] !== 'object') continue;
+      const ms = ov[k];
+      const txs = E.manualMatches(V, ms);
+      if (!txs.length) continue;
+      txs.forEach((t) => claimed.add(t.k));
+      const r = evalSeries(V, k, ms.m, txs, { forced: true, manual: ms, freq: ms.freq || 'auto' });
+      if (r) out.push(r);
+    }
+    // 2) automatic detection on everything else
+    const groups = U.groupBy(V.list.filter((t) => t.kind !== 'transfer' && !t.pending && !t.hiddenAcct && !claimed.has(t.k)), (t) => t.m + '|' + (t.amt < 0 ? '-' : '+'));
     for (const [gk, all0] of groups) {
       const mk = gk.split('|')[0];
       if (ov[mk] === 'ignore') continue;
       if (all0.length < 2) continue;
       // One company can bill several different things (e.g. Apple iCloud + Apple Music).
-      // Split by amount, then re-join pieces that follow each other in time (that's a real price change).
       const series = E.splitSeries(all0, ov[mk + '|split'] === true ? true : ov[mk + '|split'] === false ? false : null);
       for (const sr of series) {
-      const key = series.length > 1 ? mk + '#' + Math.round(U.median(sr.map((t) => Math.abs(t.amt)))) : mk;
-      if (ov[key] === 'ignore') continue;
-      if (sr.length < 2) continue;
-      const txs = sr;
-      // collapse same-day duplicates
-      const pts = [];
-      for (const t of txs) { const last = pts[pts.length - 1]; if (last && U.daysBetween(last.ts, t.ts) === 0) { last.amt += t.amt; last.items.push(t); } else pts.push({ ts: t.ts, amt: t.amt, items: [t] }); }
-      if (pts.length < 2) continue;
-      const iv = []; for (let i = 1; i < pts.length; i++) iv.push(U.daysBetween(pts[i - 1].ts, pts[i].ts));
-      const med = U.median(iv);
-      const f = FREQS.find((x) => med >= x.lo && med <= x.hi);
-      if (!f) continue;
-      const within = iv.filter((d) => d >= f.lo - 2 && d <= f.hi + 2).length / iv.length;
-      const amts = pts.map((p) => Math.abs(p.amt));
-      const recent = amts.slice(-4);
-      const medAmt = U.median(recent);
-      const cv = U.stdev(amts.slice(-6)) / (U.mean(amts.slice(-6)) || 1);
-      const minN = f.id === 'yearly' || f.id === 'quarterly' ? 2 : f.id === 'monthly' ? 3 : 4;
-      const forced = ov[mk] === 'force';
-      if (!forced && (pts.length < minN || within < 0.6 || cv > 0.45)) continue;
-      if (!forced && f.id === 'monthly' && pts.length === 2) continue;
-      const lastP = pts[pts.length - 1];
-      const sinceLast = U.daysBetween(lastP.ts, now);
-      const active = sinceLast <= f.hi * 1.5 + 5;
-      let next;
-      if (f.id === 'monthly') { next = U.addMonths(new Date(lastP.ts), 1); while (+next < U.sod(now) - DAY) next = U.addMonths(next, 1); }
-      else if (f.id === 'quarterly') { next = U.addMonths(new Date(lastP.ts), 3); }
-      else if (f.id === 'yearly') { next = U.addMonths(new Date(lastP.ts), 12); }
-      else { next = U.addDays(new Date(lastP.ts), f.days); while (+next < U.sod(now) - DAY) next = U.addDays(next, f.days); }
-      let priceChange = null;
-      if (amts.length >= 2) {
-        // most recent step change in price (kept for 6 months after it happens)
-        const cur = amts[amts.length - 1];
-        let j = amts.length - 2;
-        while (j >= 0 && Math.abs(amts[j] - cur) / cur < 0.05) j--;
-        if (j >= 0) {
-          const prev = amts[j]; const at = pts[j + 1].ts;
-          // only fixed-price bills: variable ones (utilities, groceries) naturally move around
-          const before = amts.slice(Math.max(0, j - 3), j + 1);
-          const stable = before.length >= 2 ? U.stdev(before) / (U.mean(before) || 1) < 0.03 : true;
-          if (stable && Math.abs(cur - prev) >= 1 && now - at < 183 * DAY) priceChange = { from: prev, to: cur, pct: (cur - prev) / prev, at };
-        }
-      }
-      if (ov[key + '|nohike']) priceChange = null;
-      const t0 = lastP.items[lastP.items.length - 1];
-      const sign = lastP.amt < 0 ? -1 : 1;
-      out.push({
-        key, m: mk, name: t0.name, cat: t0.cat, kind: t0.kind, acct: t0.acct, freq: f.id, f, amount: sign * medAmt, last: lastP.ts, next: +next, count: pts.length,
-        active, monthly: sign * medAmt * f.perMonth, yearly: sign * medAmt * f.perMonth * 12, priceChange, history: txs, forced,
-        dom: new Date(lastP.ts).getDate(),
-      });
+        const key = series.length > 1 ? mk + '#' + Math.round(U.median(sr.map((t) => Math.abs(t.amt)))) : mk;
+        if (ov[key] === 'ignore') continue;
+        const r = evalSeries(V, key, mk, sr, { forced: ov[mk] === 'force' });
+        if (r) out.push(r);
       }
     }
     // Same merchant, several services: give each a distinguishable name
     const byM = U.groupBy(out, (r) => r.m);
-    for (const [, rs] of byM) if (rs.length > 1) for (const r of rs) if (!ov[r.key + '|name']) r.name = r.name + ' · ' + U.money(Math.abs(r.amount));
-    for (const r of out) { if (ov[r.key + '|name']) r.name = ov[r.key + '|name']; if (ov[r.key + '|cat'] && V.catMap[ov[r.key + '|cat']]) { r.cat = ov[r.key + '|cat']; r.kind = V.catMap[r.cat].kind; } }
+    for (const [, rs] of byM) if (rs.length > 1) for (const r of rs) if (!ov[r.key + '|name'] && !(r.manual && r.manual.name)) r.name = r.name + ' · ' + U.money(Math.abs(r.amount));
+    for (const r of out) {
+      const nm = ov[r.key + '|name'] || (r.manual && r.manual.name); if (nm) r.name = nm;
+      if (ov[r.key + '|cat'] && V.catMap[ov[r.key + '|cat']]) { r.cat = ov[r.key + '|cat']; r.kind = V.catMap[r.cat].kind; }
+    }
     return out.sort((a, b) => a.monthly - b.monthly);
   };
   // A company that charges more than once in most months is billing for separate things (e.g. two

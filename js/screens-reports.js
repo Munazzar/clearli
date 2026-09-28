@@ -358,36 +358,63 @@
 
   /* ---------------- drill-downs ---------------- */
   UI.on('catDrill', (id) => App.openCategory(id));
-  App.openCategory = function (cid) {
+  // Category drill-down: the transactions of the period you were looking at come first; history below.
+  App.openCategory = function (cid, range) {
+    range = range || App.viewRange();
+    let span = 'period';
     const body = () => {
       const V = Store.V; const c = V.catMap[cid]; const all = App.list().filter((t) => t.cat === cid);
-      const m0 = U.addMonths(U.som(new Date()), -11); const m1 = U.addMonths(U.som(new Date()), 1);
-      const s = E.series(all, m0, m1, 'month', 0, (t) => (c.kind === 'income' ? t.amt : -t.amt));
-      const avg = U.mean(s.vals.slice(0, -1));
-      const ms = E.byMerchant(E.inRange(all, m0, m1), c.kind === 'income' ? 'income' : 'expense').slice(0, 10);
-      return `<div class="row">${UI.catBubble(c)}<div class="grow"><div class="h3">${U.esc(c.name)}</div><div class="small muted">avg <span class="amt">${U.money(avg, { whole: true })}</span>/mo · this month <span class="amt">${U.money(s.vals[s.vals.length - 1], { whole: true })}</span></div></div><button class="btn sm" data-a="catEdit" data-x="${cid}">${I('pencil', 'sm')} Edit</button></div>
-        <div class="g pad-s" style="margin-top:12px">${UI.chart('dCat', { type: 'bar', data: { labels: s.labels, datasets: [{ label: c.name, data: s.vals, backgroundColor: UI.grad(c.color, 0.95, 0.35) }, { type: 'line', label: 'Average', data: s.vals.map(() => avg), borderColor: UI.css('--text3'), borderDash: [4, 4], borderWidth: 1.5 }] }, options: UI.baseOpts() }, 180)}</div>
-        ${UI.sec('Merchants · 12 months')}<div class="list g flat">${ms.map((m) => `<div class="item tap" data-a="merchOpen" data-x="${U.esc(m.m)}"><div class="grow"><div class="t">${U.esc(m.name)}</div><div class="s">${m.n} transactions</div></div><div class="r b amt">${U.money(m.v, { auto: true })}</div></div>`).join('') || '<div class="item muted">None</div>'}</div>
-        ${UI.sec('Recent')}<div class="list g flat">${all.slice(0, 15).map((t) => UI.txRow(t, { showDate: true })).join('')}</div>`;
+      const sign = c.kind === 'income' ? 1 : -1;
+      const now = new Date();
+      const r = span === 'period' ? range : span === '3m' ? { a: U.addMonths(U.som(now), -2), b: U.addMonths(U.som(now), 1), label: 'Last 3 months' } : { a: U.addMonths(U.som(now), -11), b: U.addMonths(U.som(now), 1), label: 'Last 12 months' };
+      const inR = E.inRange(all, r.a, r.b).sort((x, y) => y.ts - x.ts);
+      const tot = U.sum(inR, (t) => sign * t.amt);
+      const ms = E.byMerchant(inR, c.kind === 'income' ? 'income' : 'expense');
+      const m0 = U.addMonths(U.som(now), -11); const m1 = U.addMonths(U.som(now), 1);
+      const s12 = E.series(all, m0, m1, 'month', 0, (t) => sign * t.amt);
+      const avg = U.mean(s12.vals.slice(0, -1));
+      return `<div class="row">${UI.catBubble(c)}<div class="grow"><div class="h3">${U.esc(c.name)}</div><div class="small muted">${U.esc(r.label)} · <b class="amt">${U.money(tot)}</b> · ${inR.length} transaction${inR.length === 1 ? '' : 's'}</div></div><button class="btn sm" data-a="catEdit" data-x="${cid}">${I('pencil', 'sm')}</button></div>
+        <div class="chips" style="margin-top:10px">${[['period', range.label], ['3m', '3 months'], ['12m', '12 months']].map(([id, l]) => `<button class="chip ${span === id ? 'on' : ''}" data-a="cdSpan" data-x="${id}">${U.esc(l)}</button>`).join('')}</div>
+        ${ms.length > 1 ? `<div class="g pad-s" style="margin-top:10px">${ms.slice(0, 6).map((m) => `<div class="row tap" data-a="merchOpen" data-x="${U.esc(m.m)}" style="margin:6px 0"><span class="small grow ell">${U.esc(m.name)} <span class="faint">· ${m.n}</span></span><span class="small b amt">${U.money(m.v, { auto: true })}</span></div>${UI.progress(m.v / ms[0].v, c.color)}`).join('')}</div>` : ''}
+        ${UI.sec('Transactions')}${inR.length ? `<div class="list g flat">${inR.slice(0, 200).map((t) => UI.txRow(t, { showDate: true })).join('')}</div>${inR.length > 200 ? `<div class="small faint center" style="margin-top:8px">Showing 200 of ${inR.length}</div>` : ''}` : `<div class="g pad-s small muted">Nothing in ${U.esc(r.label)}.</div>`}
+        ${UI.sec('Last 12 months', `<span class="small muted">avg <span class="amt">${U.money(avg, { whole: true })}</span>/mo</span>`)}
+        <div class="g pad-s">${UI.chart('dCat', { type: 'bar', data: { labels: s12.labels, datasets: [{ label: c.name, data: s12.vals, backgroundColor: UI.grad(c.color, 0.95, 0.35) }, { type: 'line', label: 'Average', data: s12.vals.map(() => avg), borderColor: UI.css('--text3'), borderDash: [4, 4], borderWidth: 1.5 }] }, options: UI.baseOpts() }, 170)}</div>`;
     };
+    UI.on('cdSpan', (x) => { span = x; UI.renderSheet(); });
     UI.sheet({ title: 'Category', body, full: true });
   };
-  App.openMerchant = function (m) {
+  // Period the user is looking at (Reports period, Compare period A, else this month)
+  App.viewRange = function () {
+    if (App.tab === 'reports' && !App.pages.length) {
+      if (App.rep.seg === 'compare') { const [a, b] = presetRange(App.rep.cmpA); return { a, b, label: pLabel(App.rep.cmpA) }; }
+      const pr = E.periodRange(App.rep.pid, App.rep.off, null, Store.S.settings.weekStart); return { a: pr.a, b: pr.b, label: pr.label };
+    }
+    const a = U.som(new Date()); return { a, b: U.addMonths(a, 1), label: U.fmtMonth(a) };
+  };
+  App.openMerchant = function (m, range) {
+    range = range || App.viewRange();
+    let span = 'period';
     const body = () => {
       const V = Store.V; const all = V.list.filter((t) => t.m === m && !t.hiddenAcct);
       if (!all.length) return UI.empty('info', 'No transactions');
       const t0 = all[0]; const c = V.catMap[t0.cat];
-      const m0 = U.addMonths(U.som(new Date()), -23); const m1 = U.addMonths(U.som(new Date()), 1);
-      const s = E.series(all, m0, m1, 'month', 0, (t) => Math.abs(t.amt));
-      const tot12 = U.sum(s.vals.slice(-12)); const n12 = all.filter((t) => t.ts >= +U.addMonths(m1, -12)).length;
-      const rec = V.recurring.find((r) => r.key === m);
-      const rule = Store.S.rules.find((r) => r.match === 'merchant' && r.pattern === m);
-      return `<div class="row">${UI.catBubble(c)}<div class="grow"><div class="h3">${U.esc(t0.name)}</div><div class="small muted">${U.esc(c.name)}${rule ? ' · <span class="badge acc">rule</span>' : ''}${rec ? ` · <span class="badge">${I('repeat')} ${rec.freq}</span>` : ''}</div></div></div>
-        <div class="grid3" style="margin-top:12px"><div class="g kpi"><div class="tiny faint">12 months</div><div class="v amt" style="font-size:17px">${U.money(tot12, { whole: true })}</div></div><div class="g kpi"><div class="tiny faint">Visits</div><div class="v" style="font-size:17px">${n12}</div></div><div class="g kpi"><div class="tiny faint">Average</div><div class="v amt" style="font-size:17px">${U.money(U.mean(all.map((t) => Math.abs(t.amt))))}</div></div></div>
-        <div class="g pad-s" style="margin-top:12px">${UI.chart('dMerch', { type: 'bar', data: { labels: s.labels, datasets: [{ label: t0.name, data: s.vals, backgroundColor: UI.grad(c.color, 0.95, 0.35) }] }, options: UI.baseOpts() }, 170)}</div>
+      const now = new Date();
+      const r = span === 'period' ? range : span === '12m' ? { a: U.addMonths(U.som(now), -11), b: U.addMonths(U.som(now), 1), label: 'Last 12 months' } : { a: new Date(0), b: U.addDays(now, 2), label: 'All time' };
+      const inR = E.inRangeTs(all, r.a, r.b);
+      const tot = U.sum(inR, (t) => Math.abs(t.amt));
+      const m0 = U.addMonths(U.som(now), -23); const m1 = U.addMonths(U.som(now), 1);
+      const s2 = E.series(all, m0, m1, 'month', 0, (t) => Math.abs(t.amt));
+      const recs = V.recurring.filter((x) => x.m === m);
+      const rule = Store.S.rules.find((x) => x.match === 'merchant' && x.pattern === m);
+      return `<div class="row">${UI.catBubble(c)}<div class="grow"><div class="h3">${U.esc(t0.name)}</div><div class="small muted">${U.esc(c.name)}${rule ? ' · <span class="badge acc">rule</span>' : ''}${recs.length ? ` · <span class="badge">${I('repeat')} ${recs.length > 1 ? recs.length + ' recurring' : recs[0].freq}</span>` : ''}</div></div></div>
+        <div class="chips" style="margin-top:10px">${[['period', range.label], ['12m', '12 months'], ['all', 'All time']].map(([id, l]) => `<button class="chip ${span === id ? 'on' : ''}" data-a="mdSpan" data-x="${id}">${U.esc(l)}</button>`).join('')}</div>
+        <div class="grid3" style="margin-top:8px"><div class="g kpi"><div class="tiny faint">${U.esc(r.label)}</div><div class="v amt" style="font-size:17px">${U.money(tot, { whole: tot >= 1000 })}</div></div><div class="g kpi"><div class="tiny faint">Transactions</div><div class="v" style="font-size:17px">${inR.length}</div></div><div class="g kpi"><div class="tiny faint">Average</div><div class="v amt" style="font-size:17px">${U.money(inR.length ? tot / inR.length : 0)}</div></div></div>
+        ${recs.length ? `<div class="list g flat" style="margin-top:10px">${recs.map((x) => `<div class="item tap" data-a="recOpen" data-x="${U.esc(x.key)}">${UI.bubble('repeat', '#B78CFF')}<div class="grow"><div class="t" style="font-size:14px">${U.esc(x.name)}</div><div class="s">${x.freq} · next ${U.fmtDate(x.next, { rel: true })}</div></div><div class="r b">${U.amt(x.amount, { color: true })}</div></div>`).join('')}</div>` : ''}
+        ${UI.sec('Transactions')}${inR.length ? `<div class="list g flat">${inR.slice(0, 200).map((t) => UI.txRow(t, { showDate: true, sub: U.fmtDate(t.ts, { year: true }) + ' · ' + V.catMap[t.cat].name })).join('')}</div>` : `<div class="g pad-s small muted">Nothing in ${U.esc(r.label)}.</div>`}
         <div class="sp"></div><div class="grid2"><button class="btn sm" data-a="merchCat" data-x="${U.esc(m)}">${I('tag', 'sm')} Set category</button><button class="btn sm" data-a="merchCmp" data-x="${U.esc(m)}">${I('git-compare-arrows', 'sm')} Compare</button></div>
-        ${UI.sec('All transactions')}<div class="list g flat">${all.slice(0, 40).map((t) => UI.txRow(t, { showDate: true, sub: U.fmtDate(t.ts, { year: true }) + ' · ' + V.catMap[t.cat].name })).join('')}</div>`;
+        ${UI.sec('Last 24 months')}<div class="g pad-s">${UI.chart('dMerch', { type: 'bar', data: { labels: s2.labels, datasets: [{ label: t0.name, data: s2.vals, backgroundColor: UI.grad(c.color, 0.95, 0.35) }] }, options: UI.baseOpts() }, 160)}</div>`;
     };
+    UI.on('mdSpan', (x) => { span = x; UI.renderSheet(); });
     UI.sheet({ title: 'Merchant', body, full: true });
   };
   UI.on('merchCat', (m) => {

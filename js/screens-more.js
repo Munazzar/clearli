@@ -78,8 +78,9 @@
       const accts = Object.values(S.accounts).filter((a) => a.conn === c.id);
       if (!accts.length) continue;
       const tot = U.sum(accts.filter((a) => !a.hidden && !a.excludeTotals), (a) => a.balance);
-      b += UI.sec(U.esc(c.name), `<span class="small b amt">${U.money(tot, { auto: true })}</span>`);
-      b += `<div class="list g">${accts.map((a) => `<div class="item tap" data-a="acctEdit" data-x="${U.esc(a.id)}" style="${a.hidden ? 'opacity:.5' : ''}">${UI.bubble({ checking: 'wallet', savings: 'piggy-bank', credit: 'credit-card', investment: 'trending-up', loan: 'banknote' }[a.type] || 'landmark', { checking: '#7C8CFF', savings: '#43D9B8', credit: '#FF6FB5', investment: '#FFB547', loan: '#B78CFF' }[a.type] || '#8A93B8')}<div class="grow"><div class="t ell">${U.esc(a.alias || a.name)}</div><div class="s">${a.type}${a.hidden ? ' · hidden' : ''}${a.excludeTotals ? ' · not in totals' : ''}${a.balanceDate ? ' · as of ' + U.fmtDate(a.balanceDate) : ''}</div></div><div class="r b amt ${a.balance < 0 ? 'neg' : ''}">${U.money(a.balance, { auto: true })}</div></div>`).join('')}</div>`;
+      const fresh = Math.min(...accts.filter((a) => !a.hidden && a.balanceDate).map((a) => a.balanceDate));
+      b += UI.sec(U.esc(c.name) + (c.manual || !isFinite(fresh) ? '' : ' ' + App.asOfBadge(fresh)), `<span class="small b amt">${U.money(tot, { auto: true })}</span>`);
+      b += `<div class="list g">${accts.map((a) => `<div class="item tap" data-a="acctEdit" data-x="${U.esc(a.id)}" style="${a.hidden ? 'opacity:.5' : ''}">${UI.bubble({ checking: 'wallet', savings: 'piggy-bank', credit: 'credit-card', investment: 'trending-up', loan: 'banknote' }[a.type] || 'landmark', { checking: '#7C8CFF', savings: '#43D9B8', credit: '#FF6FB5', investment: '#FFB547', loan: '#B78CFF' }[a.type] || '#8A93B8')}<div class="grow"><div class="t ell">${U.esc(a.alias || a.name)}</div><div class="s">${a.type}${a.hidden ? ' · hidden' : ''}${a.excludeTotals ? ' · not in totals' : ''}${a.balanceDate && !a.manual ? ` · <span class="${App.asOf(a.balanceDate).stale ? 'warn' : ''}">as of ${App.asOf(a.balanceDate).long}</span>` : ''}${App.afterPending(a) ? ` · after pending <span class="amt">${U.money(App.afterPending(a).v, { auto: true })}</span>` : ''}</div></div><div class="r b amt ${a.balance < 0 ? 'neg' : ''}">${U.money(a.balance, { auto: true })}</div></div>`).join('')}</div>`;
     }
     if (!b) b = `<div class="g">${UI.empty('landmark', 'No accounts yet')}</div>`;
     return { title: 'Accounts', body: b };
@@ -96,7 +97,7 @@
     UI.on('acSet', (v, el) => { a[el.dataset.x] = v.trim(); Store.commit({ silent: true }); });
     UI.on('acType', (t) => { a.type = t; Store.commit({ silent: true }); UI.renderSheet(); });
     UI.on('acTog', (k) => { a[k] = !a[k]; Store.commit({ silent: true }); UI.renderSheet(); });
-    UI.sheet({ title: 'Account', body, onClose: () => App.render() });
+    UI.sheet({ title: 'Account', body, onClose: () => App.refresh() });
   });
 
   /* ---------------- Categories ---------------- */

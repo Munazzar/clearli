@@ -88,7 +88,8 @@
 
     // Accounts
     body += UI.sec('Accounts', `<button class="link" data-a="push" data-x="accounts">Manage</button>`);
-    body += `<div class="acctcards">${accts.map((x) => `<div class="g acard tap" data-a="acctFilter" data-x="${U.esc(x.id)}"><div class="bank ell">${U.esc((S.conns[x.conn] || {}).name || '')}</div><div class="nm ell">${U.esc(x.alias || x.name)}</div><div class="bl amt ${x.balance < 0 ? 'neg' : ''}">${U.money(x.balance)}</div>${x.avail != null && x.avail !== x.balance ? `<div class="tiny faint">Available <span class="amt">${U.money(x.avail, { auto: true })}</span></div>` : `<div class="tiny faint">${U.esc(x.type)}</div>`}</div>`).join('')}</div>`;
+    body += `<div class="acctcards">${accts.map((x) => `<div class="g acard tap" data-a="acctFilter" data-x="${U.esc(x.id)}"><div class="row between" style="gap:6px"><div class="bank ell">${U.esc((S.conns[x.conn] || {}).name || '')}</div>${x.manual ? '' : App.asOfBadge(x.balanceDate)}</div><div class="nm ell">${U.esc(x.alias || x.name)}</div><div class="bl amt ${x.balance < 0 ? 'neg' : ''}">${U.money(x.balance)}</div>${x.avail != null && x.avail !== x.balance ? `<div class="tiny faint">Available <span class="amt">${U.money(x.avail, { auto: true })}</span></div>` : App.afterPending(x) ? `<div class="tiny faint">After ${App.afterPending(x).n} pending <span class="amt">${U.money(App.afterPending(x).v, { auto: true })}</span></div>` : `<div class="tiny faint">${U.esc(x.type)}</div>`}</div>`).join('')}</div>
+    ${accts.some((x) => !x.manual && App.asOf(x.balanceDate).stale) ? `<div class="small warn" style="margin:2px 6px 0">${I('alert-triangle', 'sm')} Some balances are over a day old — SimpleFIN hasn't refreshed from that bank yet. Recent purchases may be missing.</div>` : ''}`;
 
     // Categories
     if (cats.length) {
@@ -270,7 +271,7 @@
         <label class="field"><span>Tags (space separated)</span><input class="inp" data-ch="txTags" data-x="${U.esc(k)}" value="${U.esc((t.tags || []).join(' '))}" placeholder="work reimbursable trip"></label>
         <div class="list g flat">
           <div class="item"><div class="grow"><div class="t">Hide from reports</div><div class="s">Keep it in the list but ignore it in totals</div></div>${UI.toggle(t.excluded, 'txExcl', k)}</div>
-          <div class="item"><div class="grow"><div class="t">Recurring</div><div class="s">${t.recurring ? 'Detected as a repeating charge' : 'Not detected as repeating'}</div></div>${UI.toggle(t.recurring, 'txRec', k)}</div>
+          <div class="item"><div class="grow"><div class="t">Recurring</div><div class="s">${t.recurring ? (t.series && t.series.indexOf('man:') === 0 ? 'Marked by you' : 'Detected automatically') + ' · tap to stop' : 'Tap to mark this ' + (t.amt < 0 ? 'charge' : 'deposit') + ' as repeating'}</div></div>${UI.toggle(t.recurring, 'txRec', k)}</div>
         </div>
         ${UI.sec('How it compares')}
         <div class="grid3">
@@ -282,17 +283,48 @@
         ${UI.chart('txMerch', { type: 'bar', data: { labels: monthly.labels, datasets: [{ label: t.name, data: monthly.vals, backgroundColor: UI.grad(c.color, 0.9, 0.35) }] }, options: UI.baseOpts() }, 130)}</div>
         ${ctx.count > 1 ? UI.sec('History', `<button class="link" data-a="merchOpen" data-x="${U.esc(t.m)}">Merchant view</button>`) + `<div class="list g flat">${ctx.all.slice(0, 8).map((x) => UI.txRow(x, { showDate: true, sub: U.fmtDate(x.ts, { year: true }) + ' · ' + V.catMap[x.cat].name })).join('')}</div>` : ''}`;
     };
-    UI.sheet({ title: 'Transaction', body, full: true, onClose: () => App.render() });
+    UI.sheet({ title: 'Transaction', body, full: true, onClose: () => App.refresh() });
   };
   UI.on('txNote', U.debounce((v, el) => { Store.setEdit(el.dataset.x, { note: v }); Store.commit({ silent: true }); }, 400));
   UI.on('txTags', (v, el) => { Store.setEdit(el.dataset.x, { tags: v.split(/[\s,]+/).map((s) => s.replace(/^#/, '')).filter(Boolean) }); Store.commit({ silent: true }); });
   UI.on('txExcl', (k) => { const t = Store.V.byKey[k]; Store.setEdit(k, { excluded: !t.excluded }); Store.commit({ silent: true }); UI.renderSheet(); });
-  UI.on('txRec', (k) => {
-    const t = Store.V.byKey[k]; const ov = Store.S.recurringOverrides;
-    if (t.recurring) ov[t.m] = 'ignore'; else ov[t.m] = 'force';
-    Store.commit({ silent: true }); UI.renderSheet();
-    UI.toast(t.recurring ? 'Won\'t treat this merchant as recurring' : 'Marked as recurring', 'repeat');
+  UI.on('txRec', async (k) => {
+    const t = Store.V.byKey[k] || Store.V.byKey[k + '~0'];
+    const ov = (Store.S.recurringOverrides = Store.S.recurringOverrides || {});
+    if (t.recurring && t.series) {
+      const r = Store.V.recurring.find((x) => x.key === t.series);
+      if (!(await UI.confirm('Stop tracking as recurring?', `Only “${U.esc(r ? r.name : t.name)}” is affected — other recurring items from ${U.esc(t.rawName)} stay.`, 'Stop'))) return;
+      if (t.series.indexOf('man:') === 0) delete ov[t.series]; else ov[t.series] = 'ignore';
+      Store.commit({ silent: true }); UI.renderSheet(); UI.toast('No longer recurring', 'x');
+      return;
+    }
+    App.markRecurring(t);
   });
+  // Mark a transaction as recurring by hand: this amount (±10%) or any amount (bills that change every month)
+  App.markRecurring = function (t) {
+    const variable = ['utilities', 'phone', 'insurance', 'health', 'loans', 'taxes'].includes(t.cat);
+    const f = { any: variable, freq: 'auto', name: '' };
+    const ms = () => ({ m: t.m, sign: t.amt < 0 ? -1 : 1, amt: Math.abs(t.amt), anyAmt: f.any });
+    const body = () => {
+      const matches = E.manualMatches(Store.V, ms());
+      return `<p class="small muted" style="margin-top:0">Every ${t.amt < 0 ? 'charge' : 'deposit'} from <b>${U.esc(t.rawName)}</b> that matches will be tracked as one recurring item, on the calendar and in Bills.</p>
+        <div class="field"><span>Amount</span>${UI.seg([['0', 'About ' + U.money(Math.abs(t.amt))], ['1', 'Any amount']], f.any ? '1' : '0', 'mrAny')}<div class="tiny faint" style="margin:6px 4px 0">${f.any ? 'For bills that change every month, like electricity or phone.' : 'Within 10% — other amounts from this company stay separate.'}</div></div>
+        <div class="field"><span>How often</span><div class="chips wrap">${[['auto', 'Detect'], ['weekly', 'Weekly'], ['biweekly', 'Every 2 weeks'], ['monthly', 'Monthly'], ['quarterly', 'Quarterly'], ['yearly', 'Yearly']].map(([id, l]) => `<button class="chip ${f.freq === id ? 'on' : ''}" data-a="mrFreq" data-x="${id}">${l}</button>`).join('')}</div></div>
+        <label class="field"><span>Name (optional)</span><input class="inp" data-in="mrName" value="${U.esc(f.name)}" placeholder="${U.esc(t.name)}"></label>
+        <div class="g pad-s small">${I('repeat', 'sm')} Matches <b>${matches.length}</b> transaction${matches.length === 1 ? '' : 's'}${matches.length ? ` from ${U.fmtDate(matches[0].ts, { year: true })} to ${U.fmtDate(matches[matches.length - 1].ts, { year: true })}` : ''}</div>`;
+    };
+    UI.on('mrAny', (x) => { f.any = x === '1'; UI.renderSheet(); });
+    UI.on('mrFreq', (x) => { f.freq = x; UI.renderSheet(); });
+    UI.on('mrName', (v) => { f.name = v.trim(); });
+    UI.on('mrSave', () => {
+      const id = 'man:' + U.uid();
+      const ov = (Store.S.recurringOverrides = Store.S.recurringOverrides || {});
+      if (ov[t.m] === 'ignore') delete ov[t.m];
+      ov[id] = Object.assign(ms(), { freq: f.freq, name: f.name || '' });
+      Store.commit({ silent: true }); UI.closeSheet(); UI.renderSheet(); UI.toast('Tracking as recurring', 'repeat');
+    });
+    UI.sheet({ title: 'Mark as recurring', body, foot: `<button class="btn primary block" data-a="mrSave">${I('repeat')} Mark as recurring</button>` });
+  };
   UI.on('merchOpen', (m) => App.openMerchant(m));
   let curTx = null;
   const _openTx = App.openTx;

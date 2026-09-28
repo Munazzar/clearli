@@ -118,11 +118,11 @@
       const S = await W.pull(false);
       W.install(S);
       App.render();
-      if (manual || meta.by === 'phone') UI.toast('Up to date with your phone', 'check');
+      if (manual) UI.toast('Up to date with your phone', 'check');
     } catch (e) { if (manual) UI.toast(e.message, 'alert-triangle'); }
   };
-  setInterval(() => W.refresh(false), 60000);
-  window.addEventListener('focus', () => { if (Date.now() - W.lastPull > 15000) W.refresh(false); });
+  setInterval(() => W.refresh(false), 20000);
+  window.addEventListener('focus', () => { if (Date.now() - W.lastPull > 5000) W.refresh(false); });
 
   /* ---------------- sign-in / unlock screen ---------------- */
   const F = { email: '', password: '', pass: '', remember: true, busy: false, err: '', need: 'login' };

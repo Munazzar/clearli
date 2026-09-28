@@ -17,6 +17,27 @@
     if (!(kk in App._mc)) App._mc[kk] = fn();
     return App._mc[kk];
   };
+  /* How fresh is a bank balance? SimpleFIN refreshes about once a day. */
+  App.asOf = function (ms) {
+    if (!ms) return { short: '', long: 'Not reported', stale: false };
+    const h = (Date.now() - ms) / 3600000;
+    const d = new Date(ms); const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const day = U.daysBetween(d, new Date());
+    const short = h < 1 ? 'now' : h < 24 ? Math.floor(h) + 'h ago' : Math.floor(h / 24) + 'd ago';
+    const long = day === 0 ? 'today ' + time : day === 1 ? 'yesterday ' + time : U.fmtDate(d) + ' ' + time;
+    return { short, long, stale: h > 26 };
+  };
+  App.asOfBadge = function (ms) {
+    const x = App.asOf(ms); if (!x.short) return '';
+    return `<span class="asof ${x.stale ? 'warn' : 'faint'}" title="Balance as of ${x.long}">${x.stale ? U.icon('alert-triangle', 'sm') : U.icon('clock', 'sm')}${x.short}</span>`;
+  };
+  // Balance after charges the bank has sent as pending but not yet taken out of the reported balance
+  App.afterPending = function (a) {
+    if (a.avail != null) return null;
+    const pend = Object.values(Store.S.txns).filter((t) => t.acct === a.id && t.pending);
+    if (!pend.length) return null;
+    return { v: a.balance + pend.reduce((s, t) => s + t.amt, 0), n: pend.length };
+  };
   App.list = (opts) => App.memo('list' + (opts && opts.includeExcluded ? 'x' : ''), () => E.scoped(Store.V, App.scope, opts));
   App.insights = () => App.memo('ins', () => E.insights(Store.V, App.list(), Store.S));
   App.S = () => Store.S;
@@ -54,8 +75,11 @@
     return false;
   };
 
+  // Re-render only when the data actually changed (used when a sheet closes)
+  App.refresh = function () { if (Store.V !== App._lastV) App.render(); };
   App.render = function (resetScroll) {
     if (!Store.S.settings.onboarded) return;
+    App._lastV = Store.V;
     const view = document.getElementById('view');
     const page = App.pages[App.pages.length - 1];
     let r;

@@ -109,7 +109,7 @@
       return h;
     };
     UI.on('goalCut', (c) => { if (cutsOn.has(c)) cutsOn.delete(c); else cutsOn.add(c); UI.renderSheet(); });
-    UI.sheet({ title: 'Goal plan', body, full: true, onClose: () => App.render() });
+    UI.sheet({ title: 'Goal plan', body, full: true, onClose: () => App.refresh() });
   };
   UI.on('goalEdit', (id) => App.editGoal(id));
   UI.on('goalAdd', (id) => {
@@ -193,7 +193,7 @@
         ${ents.length > 1 ? App.card('Money put in over time', '', UI.chart('aHist', { type: 'line', data: { labels: ents.map((e) => U.fmtDate(e.ts)), datasets: [{ label: 'Put in', data: pts, borderColor: col, backgroundColor: UI.grad(col, 0.3, 0), fill: true, stepped: true, pointRadius: 2 }] }, options: UI.baseOpts({ zero: false }) }, 160)) : ''}
         ${UI.sec('History')}${ents.length ? `<div class="list g flat">${ents.slice().reverse().map((e) => `<div class="item">${UI.bubble(e.amt >= 0 ? 'plus' : 'arrow-up-right', e.amt >= 0 ? '#43D9B8' : '#FF6B81', true)}<div class="grow"><div class="t" style="font-size:14px">${U.esc(e.note || (e.amt >= 0 ? 'Added' : 'Taken out'))}</div><div class="s">${U.fmtDate(e.ts, { year: true })}${e.tx ? ' · from a bank transaction' : ''}</div></div><div class="r b amt ${e.amt >= 0 ? 'pos' : 'neg'}">${U.money(e.amt, { sign: true })}</div><button class="iconbtn" data-a="aeDel" data-x="${id}|${e.id}">${I('x', 'sm')}</button></div>`).join('')}</div>` : '<div class="g pad-s small muted">No entries yet.</div>'}`;
     };
-    UI.sheet({ title: 'Savings place', body, full: true, onClose: () => App.render() });
+    UI.sheet({ title: 'Savings place', body, full: true, onClose: () => App.refresh() });
   };
   UI.on('assetEdit', (id) => App.editAsset(id));
   const entrySheet = (id, sign) => {
@@ -368,7 +368,7 @@
         <div class="sp"></div><div class="grid2"><button class="btn sm" data-a="merchOpen" data-x="${U.esc(r.m)}">${I('receipt', 'sm')} All charges</button><button class="btn sm danger" data-a="recIgnore" data-x="${U.esc(r.key)}">${I('x', 'sm')} Not recurring</button></div>
         ${UI.sec('History')}<div class="list g flat">${[...r.history].slice(-12).reverse().map((t) => UI.txRow(t, { showDate: true })).join('')}</div>`;
     };
-    UI.sheet({ title: 'Recurring', body, full: true, onClose: () => App.render() });
+    UI.sheet({ title: 'Recurring', body, full: true, onClose: () => App.refresh() });
   };
   const ovr = () => (Store.S.recurringOverrides = Store.S.recurringOverrides || {});
   UI.on('recName', (v, el) => { const k = el.dataset.x; if (v.trim()) ovr()[k + '|name'] = v.trim(); else delete ovr()[k + '|name']; Store.commit({ silent: true }); UI.renderSheet(); UI.toast('Name saved', 'pencil'); });
@@ -379,6 +379,6 @@
     UI.toast(!cur ? 'Split by amount — each is its own recurring item now' : 'Combined into one recurring item', 'repeat');
   });
   UI.on('recNoHike', (k) => { Store.S.recurringOverrides[k + '|nohike'] = true; Store.commit({ silent: true }); UI.renderSheet(); UI.toast('Got it — won\'t flag this as a price increase', 'check'); });
-  UI.on('recIgnore', (k) => { Store.S.recurringOverrides[k] = 'ignore'; Store.commit({ silent: true }); UI.renderSheet(); UI.toast('Removed from recurring', 'x'); });
+  UI.on('recIgnore', (k) => { const ov = Store.S.recurringOverrides; if (k.indexOf('man:') === 0) delete ov[k]; else ov[k] = 'ignore'; Store.commit({ silent: true }); UI.renderSheet(); UI.toast('Removed from recurring', 'x'); });
   UI.on('recUnignore', (k) => { delete Store.S.recurringOverrides[k]; Store.commit({ silent: true }); UI.renderSheet(); });
 })();
