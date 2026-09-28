@@ -1,0 +1,1 @@
+{ "name": "Clearli", "short_name": "Clearli", "start_url": "./", "display": "standalone", "background_color": "#0B0D1A", "theme_color": "#0B0D1A", "icons": [{ "src": "icon.png", "sizes": "192x192", "type": "image/png" }] }

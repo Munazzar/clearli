@@ -1,0 +1,34 @@
+/* Clearli Web — desktop layout on top of the shared app styles */
+body { user-select: text; -webkit-user-select: text; }
+.tap, button, .chip { cursor: pointer; }
+@media (hover: hover) {
+  .item.tap:hover { background: var(--fill); }
+  .g.tap:hover { filter: brightness(1.06); }
+}
+@media (min-width: 900px) {
+  #tabs { left: 18px; top: 18px; bottom: 18px; transform: none; width: 210px; height: auto; flex-direction: column; justify-content: flex-start; align-items: stretch; padding: 70px 10px 10px; border-radius: 30px; gap: 4px; }
+  #tabs::before { content: 'Clearli'; position: absolute; top: 22px; left: 24px; font-weight: 800; font-size: 22px; letter-spacing: -.02em; color: var(--text); }
+  #tabs button { flex: none; height: 48px; flex-direction: row; justify-content: flex-start; gap: 12px; padding: 0 16px; font-size: 14.5px; }
+  #tabs .drop { left: 10px !important; width: calc(100% - 20px) !important; border-radius: 16px; }
+  #app { left: 246px; }
+  #top { padding: 22px 28px 10px; max-width: 1560px; }
+  #view { padding: 6px 28px 60px; }
+  #view { column-count: 2; column-gap: 18px; max-width: 1560px; }
+  #view > * { break-inside: avoid; margin-bottom: 14px; }
+  #view > .sec { break-after: avoid; margin-top: 10px; }
+  #view > .seg, #view > .chips, #view > .search, #view > .grid2, #view > #webStatus, #view > .g.row:has(> .iconbtn), #view > .g.hero, #view > .g.tint, #view > .sp, #view > #actList, #view > .dayhdr { column-span: all; }
+  #view > .sp { display: none; }
+  #actList { column-count: 2; column-gap: 18px; }
+  #actList > * { break-inside: avoid; }
+  .sheet { left: calc(50% - 330px + 123px); right: auto; width: 660px; bottom: 3vh; max-height: 94vh; border-radius: 30px; }
+  .sheet .grab { display: none; }
+  .selbar { left: calc(50% + 123px); bottom: 24px; }
+  .fab { bottom: 30px; right: 36px; }
+  #toast { left: calc(50% + 123px); }
+  .acctcards { margin: 0; padding-left: 0; padding-right: 0; flex-wrap: wrap; }
+  .hero .big { font-size: 48px; }
+}
+@media (min-width: 1500px) {
+  #view { column-count: 3; }
+  #actList { column-count: 3; }
+}
