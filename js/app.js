@@ -292,6 +292,7 @@
       <div class="field"><span>How far back?</span>${App.histPicker(OB, 'obBack')}${Number(OB.back) > 90 || OB.back === 'custom' ? `<div class="tiny faint" style="margin:6px 4px 0">The last 3 months load right away; older history keeps loading quietly in the background.</div>` : ''}</div>
       ${OB.err ? `<div class="g pad-s small neg" style="margin-bottom:12px">${I('alert-triangle', 'sm')} ${U.esc(OB.err)}</div>` : ''}
       ${OB.busy ? `<div class="row center" style="justify-content:center;padding:12px"><div class="spin"></div><span class="muted">${U.esc(OB.progress || 'Connecting…')}</span></div>` : `<button class="btn primary block" data-a="obConnect" ${host ? '' : 'disabled'}>Connect securely</button>
+      <div class="sp"></div><button class="btn block" data-a="obJoin">${I('layers')} We already use Clearli — join</button>
       <div class="sp"></div><button class="btn block" data-a="obDemo">${I('sparkles')} Explore with sample data</button>`}
       ${dots}`;
     } else {
@@ -345,6 +346,7 @@
     document.body.classList.remove('onb');
     App.applyTheme(); App.render(true);
   });
+  App.onboardStep = function (n) { OB.step = n; App.onboard(); };
   App.restartOnboarding = function () { OB.step = 2; OB.token = ''; OB.err = ''; App.onboard(); };
 
   /* ---------------- boot ---------------- */

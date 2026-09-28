@@ -9,7 +9,7 @@
     const nA = Object.keys(S.accounts).length; const nT = Object.keys(S.txns).length;
     let body = `<div class="g pad row">${UI.bubble(st.demo ? 'sparkles' : host ? 'shield-check' : 'alert-triangle', st.demo ? '#FFB547' : host ? '#3DDC97' : '#FF6B81')}<div class="grow"><div class="h3">${st.demo ? 'Sample data' : host ? 'Connected via SimpleFIN' : 'Not connected'}</div><div class="small muted">${nA} accounts · ${U.num(nT)} transactions${S.lastSync ? ' · ' + U.ago(S.lastSync) : ''}</div></div><button class="iconbtn g" data-a="sync">${I('refresh-cw')}</button></div>`;
     body += UI.sec('Data') + `<div class="list g">
-      ${row('layers', '#43D9B8', 'Web dashboard & sync', S.sync && S.sync.enabled ? 'On · ' + (S.sync.lastPush ? 'synced ' + U.ago(S.sync.lastPush) : 'waiting') : 'Encrypted sync to your computer', 'push', 'websync')}
+      ${row('layers', '#43D9B8', S.sync && S.sync.role === 'member' ? 'Household sync' : 'Web dashboard & sync', S.sync && S.sync.enabled ? (S.sync.role === 'member' ? 'Member of ' + S.sync.email : 'On · ' + (S.sync.lastPush ? 'synced ' + U.ago(S.sync.lastPush) : 'waiting')) : 'Encrypted sync to your computer', 'push', 'websync')}
       ${row('landmark', '#7C8CFF', 'Connection & sync', st.demo ? 'Connect your real banks' : host || 'Set up SimpleFIN', 'push', 'connection')}
       ${row('wallet', '#43D9B8', 'Accounts', 'Rename, hide, set types', 'push', 'accounts')}
       ${row('tag', '#FF6FB5', 'Categories', S.cats.length + ' categories', 'push', 'categories')}
@@ -37,6 +37,7 @@
   /* ---------------- Connection ---------------- */
   App.pageDefs.connection = function () {
     const S = Store.S; const st = S.settings;
+    if (App.isMember && App.isMember()) return { title: 'Connection & sync', body: `<div class="g pad row">${UI.bubble('layers', '#43D9B8')}<div class="grow"><div class="h3">Banks sync on the main phone</div><div class="small muted" style="margin-top:3px">This phone is a household member. SimpleFIN, history loading and bank-file imports that need a bank account run on the main phone; this one gets updates from it automatically.</div></div></div><div class="sp"></div><button class="btn primary block" data-a="push" data-x="websync">${I('layers')} Household sync</button>` };
     const host = Store.N.sync('accessHost');
     const q = S.quota && S.quota.day === U.dayKey(new Date()) ? S.quota.n : 0;
     let b = `<div class="g pad"><div class="row">${UI.bubble('landmark', '#7C8CFF')}<div class="grow"><div class="h3">SimpleFIN Bridge</div><div class="small muted">${st.demo ? 'Using sample data' : host ? U.esc(host) : 'Not connected'}</div></div></div>
