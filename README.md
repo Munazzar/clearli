@@ -47,6 +47,9 @@ Clearli server.
 4. **Credentials → Create OAuth client ID → Desktop app** (for the Android app; loopback + PKCE).
 5. **GitHub → Settings → Secrets and variables → Actions → Variables:** `GOOGLE_WEB_CLIENT_ID` = the Web client ID.
    **Settings → Pages → Source:** GitHub Actions. Pushing to `main` then deploys the dashboard (`.github/workflows/pages.yml`).
-6. **Android build:** `GOOGLE_APP_CLIENT_ID=… GOOGLE_APP_CLIENT_SECRET=… KEYSTORE_PASS=… ./build.sh`
+6. **APK releases:** add secrets `KEYSTORE_BASE64` (`base64 -w0 release.keystore`), `KEYSTORE_PASS`,
+   `GOOGLE_APP_CLIENT_SECRET` and variable `GOOGLE_APP_CLIENT_ID`, then run Actions → **Release APK**
+   (or push a tag `v1.5.0`). It refuses to publish an APK not signed with the 1.4.0 key.
+7. **Local Android build:** `GOOGLE_APP_CLIENT_ID=… GOOGLE_APP_CLIENT_SECRET=… KEYSTORE_PASS=… ./build.sh`
    (or fill `android/assets/www/js/gconfig.js` locally). Without a client ID the app works as before, with no
    Google gate.
