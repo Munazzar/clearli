@@ -1,0 +1,7 @@
+# signing key — never commit (updates must be signed with the same key; keep it safe offline)
+*.keystore
+*.jks
+build/
+web/dist/
+test/shots/
+node_modules/
