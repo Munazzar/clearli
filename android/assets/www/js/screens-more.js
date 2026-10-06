@@ -40,7 +40,7 @@
     if (App.isMember && App.isMember()) return { title: 'Connection & sync', body: `<div class="g pad row">${UI.bubble('layers', '#43D9B8')}<div class="grow"><div class="h3">Banks sync on the main phone</div><div class="small muted" style="margin-top:3px">This phone is a household member. SimpleFIN, history loading and bank-file imports that need a bank account run on the main phone; this one gets updates from it automatically.</div></div></div><div class="sp"></div><button class="btn primary block" data-a="push" data-x="websync">${I('layers')} Household sync</button>` };
     const host = Store.N.sync('accessHost');
     const q = S.quota && S.quota.day === U.dayKey(new Date()) ? S.quota.n : 0;
-    let b = `<div class="g pad"><div class="row">${UI.bubble('landmark', '#7C8CFF')}<div class="grow"><div class="h3">SimpleFIN Bridge</div><div class="small muted">${st.demo ? 'Using sample data' : host ? U.esc(host) : 'Not connected'}</div></div></div>
+    let b = (App.bankGateHtml ? App.bankGateHtml() : '') + `<div class="g pad"><div class="row">${UI.bubble('landmark', '#7C8CFF')}<div class="grow"><div class="h3">SimpleFIN Bridge</div><div class="small muted">${st.demo ? 'Using sample data' : host ? U.esc(host) : 'Not connected'}</div></div></div>
       <div class="grid2" style="margin-top:14px"><div><div class="tiny faint">Last sync</div><div class="b">${S.lastSync ? U.ago(S.lastSync) : 'Never'}</div></div><div><div class="tiny faint">Requests today</div><div class="b">${q} / 24</div></div></div>
       <div class="sp"></div><div class="grid2"><button class="btn sm" data-a="sync">${I('refresh-cw', 'sm')} Sync now</button><button class="btn sm" data-a="fullSync">${I('download', 'sm')} Re-download</button></div></div>`;
     b += UI.sec('Sync') + `<div class="list g">
@@ -234,7 +234,8 @@
   /* ---------------- General ---------------- */
   App.pageDefs.general = function () {
     const st = Store.S.settings;
-    const cur = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'INR', 'PKR', 'AED', 'SAR', 'JPY', 'CHF', 'MXN'];
+    const cur = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'NZD', 'INR', 'PKR', 'BDT', 'LKR', 'NPR', 'AED', 'SAR', 'QAR', 'KWD', 'EGP', 'TRY', 'ILS', 'JPY', 'CNY', 'HKD', 'TWD', 'KRW', 'SGD', 'MYR', 'IDR', 'PHP', 'THB', 'VND', 'CHF', 'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'HUF', 'RON', 'MXN', 'BRL', 'ARS', 'CLP', 'COP', 'ZAR', 'NGN', 'KES'];
+    if (!cur.includes(st.currency)) cur.unshift(st.currency);
     let b = `<div class="list g">
       <div class="item"><div class="grow"><div class="t">Currency</div><div class="s">Display format for amounts</div></div><select class="inp" style="width:110px;height:40px" data-ch="setCur">${cur.map((c) => `<option ${st.currency === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
       <div class="item"><div class="grow"><div class="t">Week starts on</div></div><select class="inp" style="width:130px;height:40px" data-ch="setWs">${[0, 1, 6].map((d) => `<option value="${d}" ${st.weekStart === d ? 'selected' : ''}>${U.DOW[d]}</option>`).join('')}</select></div>

@@ -24,13 +24,14 @@
     if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
     return rows.map((r) => r.map((x) => x.trim())).filter((r) => r.some((x) => x !== ''));
   };
-  const looksDate = (s) => /^\d{1,4}[\/\-.]\d{1,2}[\/\-.]\d{1,4}$/.test(s) || /^\d{8}$/.test(s);
-  const looksNum = (s) => /^[-+(]?\s*\$?\s*[\d,]*\.?\d+\)?\s*(CR|DR)?$/i.test(s.replace(/\s/g, ''));
+  const looksDate = (s) => /^\d{1,4}[\/\-.]\d{1,2}[\/\-.]\d{1,4}\.?$/.test(s) || /^\d{8}$/.test(s) || IMP.parseDate(s) != null;
+  const looksNum = (s) => { const t = String(s).replace(/\s/g, ''); return /\d/.test(t) && !/[\/:]/.test(t) && !looksDateOnly(t) && /^[-+(]?[^\d+(-]{0,4}[\d.,'’]*\d[^\d]{0,4}\)?-?$/i.test(t); };
+  const looksDateOnly = (t) => /^\d{1,4}[\/\-.]\d{1,2}[\/\-.]\d{2,4}$/.test(t) && !/^\d{1,3}([.,]\d{3})+$/.test(t);
 
   IMP.detect = function (rows) {
     let h = -1;
     for (let i = 0; i < Math.min(rows.length, 20); i++) {
-      const hits = rows[i].filter((c) => /date|description|amount|debit|credit|payee|memo|details|transaction|posted/i.test(c)).length;
+      const hits = rows[i].filter((c) => HDR.test(c)).length;
       if (hits >= 2) { h = i; break; }
     }
     let headers, body;
@@ -43,16 +44,17 @@
     }
     const L = headers.map((x) => x.toLowerCase());
     const find = (...res) => { for (const re of res) { const i = L.findIndex((x) => re.test(x)); if (i >= 0) return i; } return -1; };
+    // English first, then the words banks use around the world (de, fr, es, it, pt, nl, sv/da/no, pl, tr)
     const map = {
-      date: find(/^transaction date$|^trans\.? date$/, /^date$/, /posting date|post date|posted date|^date/, /date/),
-      desc: find(/^description$/, /payee|merchant|^name$/, /description/, /memo/),
-      amount: find(/^amount$/, /amount/),
-      debit: find(/^debit$|withdrawal|money out|^debit amount/),
-      credit: find(/^credit$|deposit|money in|^credit amount/),
-      cat: find(/category/),
-      type: find(/^type$|transaction type/),
-      memo: find(/^memo$|extended details|reference/),
-      balance: find(/balance|running bal/),
+      date: find(/^transaction date$|^trans\.? date$|^txn date$/, /^date$|^datum$|^fecha$|^data$|^dato$|^tarih$/, /posting date|post date|posted date|value date|^date|buchungstag|buchungsdatum|date d'op[ée]ration|fecha (de )?operaci[oó]n|data (della )?operazione|data (do )?movimento|data operacji|boekdatum|transaktionsdatum|bokf[öo]ringsdag|i[şs]lem tarihi/, /date|datum|fecha|data|tarih/),
+      desc: find(/^description$|^narration$|^particulars$/, /payee|merchant|^name$|^details$|beg[üu]nstigter|empf[äa]nger|zahlungspflichtige|^libell[ée]|^concepto$|^descripci[oó]n$|^descrizione$|^descri[çc][ãa]o$|^omschrijving$|^naam|^tekst$|^text$|^beskrivning$|^opis|^a[çc][ıi]klama$|verwendungszweck/, /description|buchungstext|libell[ée]|concepto|descrizione|causale|hist[óo]rico|mededelingen|beskrivelse|tytu[łl]/, /memo/),
+      amount: find(/^amount$|^betrag$|^montant$|^importe$|^importo$|^valor$|^bedrag$|^bel[øo]p$|^belopp$|^kwota$|^tutar$/, /amount|betrag|montant|importe|importo|valor|bedrag|bel[øo]p|kwota|tutar|^summa/),
+      debit: find(/^debit$|withdrawal|money out|^debit amount|^paid out|^soll$|^d[ée]bit$|^cargo$|^dare$|^d[ée]bito$|^af$|^uttag|obci[aą][żz]enia|^bor[çc]$/),
+      credit: find(/^credit$|deposit|money in|^credit amount|^paid in|^haben$|^cr[ée]dit$|^abono$|^avere$|^cr[ée]dito$|^bij$|^ins[äa]ttning|uznania|^alacak$/),
+      cat: find(/category|kategorie|cat[ée]gorie|categor[ií]a|categoria|categorie|kategori/),
+      type: find(/^type$|transaction type|^umsatzart$|^tipo$|^mutatiesoort$/),
+      memo: find(/^memo$|extended details|reference|^referenz|^r[ée]f[ée]rence|^referencia|^riferimento|^refer[êe]ncia|^kenmerk/),
+      balance: find(/balance|running bal|saldo|^solde/),
     };
     if (h < 0) {
       // guess columns by content
@@ -79,8 +81,20 @@
     return { headers, body, map, preset, headerRow: h };
   };
 
+  const HDR = /date|description|amount|debit|credit|payee|memo|details|transaction|posted|narration|particulars|withdrawal|deposit|datum|betrag|buchung|verwendungszweck|montant|libell|d[ée]bit|cr[ée]dit|fecha|importe|concepto|data|importo|descrizione|valor|descri[çc]|bedrag|omschrijving|bel[øo]p|kwota|tutar|tarih|saldo|solde|balance/i;
+  // month names (en, de, fr, es, it, pt, nl) so "06 Oct 2026", "6-Okt-26" or "Oct 6, 2026" work too
+  const MON = { jan: 1, ene: 1, gen: 1, janv: 1, feb: 2, fév: 2, fev: 2, févr: 2, mar: 3, mär: 3, mrt: 3, mars: 3, apr: 4, abr: 4, avr: 4, may: 5, mai: 5, mei: 5, mag: 5, mayo: 5, jun: 6, juin: 6, giu: 6, jul: 7, juil: 7, lug: 7, aug: 8, ago: 8, aoû: 8, aou: 8, sep: 9, sept: 9, set: 9, oct: 10, okt: 10, out: 10, ott: 10, nov: 11, dec: 12, dez: 12, déc: 12, dic: 12 };
+  const monthOf = (w) => { w = w.toLowerCase().replace(/\.$/, ''); return MON[w] || MON[w.slice(0, 4)] || MON[w.slice(0, 3)] || 0; };
   IMP.parseDate = function (s, fmt) {
-    s = String(s || '').trim().split(/[ T]/)[0];
+    const full = String(s || '').trim();
+    const named = /^(\d{1,2})[\s\-\/.]+([A-Za-zÀ-ÿ]{3,9}\.?)[\s\-\/.,]+(\d{2,4})/.exec(full) || null;
+    const namedUS = !named && /^([A-Za-zÀ-ÿ]{3,9}\.?)[\s\-]+(\d{1,2}),?[\s\-]+(\d{2,4})/.exec(full);
+    if (named || namedUS) {
+      const d = +(named ? named[1] : namedUS[2]); const m = monthOf(named ? named[2] : namedUS[1]); let y = +(named ? named[3] : namedUS[3]);
+      if (y < 100) y += 2000;
+      return m && d >= 1 && d <= 31 ? +new Date(y, m - 1, d, 12) : null;
+    }
+    s = full.split(/[ T]/)[0].replace(/\.$/, '');
     if (!s) return null;
     let y, m, d;
     if (/^\d{8}/.test(s)) { y = +s.slice(0, 4); m = +s.slice(4, 6); d = +s.slice(6, 8); }
@@ -95,26 +109,50 @@
     if (!(m >= 1 && m <= 12 && d >= 1 && d <= 31)) return null;
     return +new Date(y, m - 1, d, 12);
   };
-  IMP.guessDateFmt = function (vals) {
-    let dmy = 0, mdy = 0, ymd = 0;
+  IMP.guessDateFmt = function (vals, hint) {
+    let dmy = 0, mdy = 0, ymd = 0, dots = 0;
     for (const s of vals.slice(0, 200)) {
-      const p = String(s).split(/[\/\-.]/).map(Number);
+      const t = String(s).trim().split(/[ T]/)[0].replace(/\.$/, '');
+      const p = t.split(/[\/\-.]/).map(Number);
       if (p.length !== 3) continue;
+      if (/^\d+\.\d+\.\d+$/.test(t)) dots++;
       if (p[0] > 999) ymd++; else if (p[0] > 12) dmy++; else if (p[1] > 12) mdy++;
     }
-    return ymd ? 'YMD' : dmy > mdy ? 'DMY' : 'MDY';
+    if (ymd) return 'YMD';
+    if (dmy !== mdy) return dmy > mdy ? 'DMY' : 'MDY';
+    // nothing decides it: dotted dates are day-first everywhere; otherwise go by the browser's region
+    const lang = (typeof navigator !== 'undefined' && navigator.language) || 'en-US';
+    return dots || hint === 'DMY' || !/^en(-US|-PH)?$/i.test(lang) ? 'DMY' : 'MDY';
   };
-  IMP.parseAmt = function (s) {
+  // dec: '.' (1,234.56), ',' (1.234,56) or empty to decide per value
+  IMP.parseAmt = function (s, dec) {
     if (s == null) return NaN;
     let t = String(s).trim(); if (!t) return NaN;
     let neg = false;
     if (/^\(.*\)$/.test(t)) { neg = true; t = t.slice(1, -1); }
-    if (/DR$/i.test(t)) { neg = true; t = t.replace(/DR$/i, ''); }
-    t = t.replace(/CR$/i, '').replace(/[$€£₹\s,]/g, '');
+    if (/DR\.?$/i.test(t)) { neg = true; t = t.replace(/DR\.?$/i, ''); }
+    t = t.replace(/CR\.?$/i, '');
+    t = t.replace(/[^\d.,\-+]/g, ''); // currency symbols/codes, spaces, apostrophes (1'234.50)
+    if (/-$/.test(t)) { neg = !neg; t = t.slice(0, -1); } // trailing minus (German statements)
     if (/^-/.test(t)) { neg = !neg; t = t.slice(1); }
     if (/^\+/.test(t)) t = t.slice(1);
+    if (!dec) {
+      const lc = t.lastIndexOf(','), lp = t.lastIndexOf('.');
+      dec = lc > lp && (lp >= 0 || /,\d{1,2}$/.test(t)) ? ',' : '.';
+    }
+    t = dec === ',' ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, '');
+    if (!/^\d*\.?\d+$/.test(t)) return NaN;
     const v = parseFloat(t);
     return isNaN(v) ? NaN : neg ? -v : v;
+  };
+  IMP.guessDecimal = function (vals) {
+    let comma = 0, dot = 0;
+    for (const s0 of vals.slice(0, 300)) {
+      const t = String(s0 || '').replace(/[^\d.,]/g, '');
+      if (/,\d{1,2}$/.test(t) && !/\.\d{1,2}$/.test(t)) comma++;
+      else if (/\.\d{1,2}$/.test(t)) dot++;
+    }
+    return comma > dot ? ',' : '.';
   };
 
   IMP.parseOFX = function (text) {
@@ -147,11 +185,11 @@
       const date = IMP.parseDate(r[m.date], o.dateFmt);
       if (!date) continue;
       let amt;
-      if (o.amountMode === 'split') { const d = IMP.parseAmt(r[m.debit]); const c = IMP.parseAmt(r[m.credit]); amt = (isNaN(c) ? 0 : Math.abs(c)) - (isNaN(d) ? 0 : Math.abs(d)); if (isNaN(d) && isNaN(c)) continue; }
-      else { amt = IMP.parseAmt(r[m.amount]); if (isNaN(amt)) continue; }
+      if (o.amountMode === 'split') { const d = IMP.parseAmt(r[m.debit], o.decimal); const c = IMP.parseAmt(r[m.credit], o.decimal); amt = (isNaN(c) ? 0 : Math.abs(c)) - (isNaN(d) ? 0 : Math.abs(d)); if (isNaN(d) && isNaN(c)) continue; }
+      else { amt = IMP.parseAmt(r[m.amount], o.decimal); if (isNaN(amt)) continue; }
       if (o.flip) amt = -amt;
       const desc = (m.desc >= 0 ? r[m.desc] : '') || (m.memo >= 0 ? r[m.memo] : '') || 'Transaction';
-      out.push({ date, amt: Math.round(amt * 100) / 100, desc, memo: m.memo >= 0 && m.memo !== m.desc ? r[m.memo] || '' : '', type: m.type >= 0 ? r[m.type] : '', cat: m.cat >= 0 ? r[m.cat] : '', balance: m.balance >= 0 ? IMP.parseAmt(r[m.balance]) : NaN });
+      out.push({ date, amt: Math.round(amt * 100) / 100, desc, memo: m.memo >= 0 && m.memo !== m.desc ? r[m.memo] || '' : '', type: m.type >= 0 ? r[m.type] : '', cat: m.cat >= 0 ? r[m.cat] : '', balance: m.balance >= 0 ? IMP.parseAmt(r[m.balance], o.decimal) : NaN });
     }
     return out;
   };
@@ -216,11 +254,14 @@
       map: P.kind === 'csv' ? Object.assign({}, P.csv.map) : null, amountMode: 'single', dateFmt: 'MDY', flip: false,
       range: 'before', from: '', to: '', dupes: 'skip', bankCats: true, payments: true,
     };
+    // first file ever (web-first users): it's an everyday account, not an old closed card
+    if (!accts.length) Object.assign(o, { acct: 'new', newType: 'checking', newNet: true });
     if (P.kind === 'csv') {
       const m = o.map;
       if (m.amount < 0 && m.debit >= 0 && m.credit >= 0) o.amountMode = 'split';
       if (/chase checking/i.test(P.preset)) o.newType = 'checking';
-      o.dateFmt = IMP.guessDateFmt(P.csv.body.map((r) => r[m.date]));
+      o.decimal = IMP.guessDecimal(P.csv.body.flatMap((r) => [r[m.amount], r[m.debit], r[m.credit]].filter((x) => x != null && x !== '')));
+      o.dateFmt = IMP.guessDateFmt(P.csv.body.map((r) => r[m.date]), o.decimal === ',' ? 'DMY' : ''); // decimal-comma countries write the day first
     }
     // auto-detect sign: most rows on a statement are spending; if most are positive, amounts are reversed
     const pre = IMP.build(P, o);
@@ -264,6 +305,7 @@
       // 3. format
       h += UI.sec((P.kind === 'csv' ? '3' : '2') + ' · Format');
       if (P.kind === 'csv') h += `<div class="field"><span>Date format</span>${UI.seg([['MDY', 'MM/DD/YYYY'], ['DMY', 'DD/MM/YYYY'], ['YMD', 'YYYY-MM-DD']], o.dateFmt, 'imDate')}</div>`;
+      if (P.kind === 'csv') h += `<div class="field"><span>Number format</span>${UI.seg([['.', '1,234.56'], [',', '1.234,56']], o.decimal || '.', 'imDec')}</div>`;
       h += `<div class="field"><span>Money out is shown as</span>${UI.seg([['0', 'Negative −'], ['1', 'Positive +']], o.flip ? '1' : '0', 'imFlip')}</div>`;
 
       // 4. what to import
@@ -294,6 +336,7 @@
     UI.on('imCol', (v, el) => { o.map[el.dataset.x] = Number(v); re(); });
     UI.on('imAmtMode', (x) => { o.amountMode = x; re(); });
     UI.on('imDate', (x) => { o.dateFmt = x; re(); });
+    UI.on('imDec', (x) => { o.decimal = x; re(); });
     UI.on('imFlip', (x) => { o.flip = x === '1'; re(); });
     UI.on('imRange', (x) => { o.range = x; re(); });
     UI.on('imFrom', (v) => { o.from = v; re(); });
@@ -329,7 +372,7 @@
       S.conns[connId] = S.conns[connId] || { id: connId, name: bank, url: '', manual: true };
       acctId = 'man_' + U.uid();
       const withBal = rows.filter((r) => !isNaN(r.balance)).sort((a, b) => b.date - a.date);
-      S.accounts[acctId] = { id: acctId, name: o.newName.trim(), conn: connId, type: o.newType, currency: 'USD', balance: withBal.length ? withBal[0].balance : (P.kind === 'ofx' && P.ofx.balance != null ? P.ofx.balance : 0), balanceDate: Date.now(), manual: true, excludeTotals: !o.newNet };
+      S.accounts[acctId] = { id: acctId, name: o.newName.trim(), conn: connId, type: o.newType, currency: S.settings.currency || 'USD', balance: withBal.length ? withBal[0].balance : (P.kind === 'ofx' && P.ofx.balance != null ? P.ofx.balance : 0), balanceDate: Date.now(), manual: true, excludeTotals: !o.newNet };
     }
     const plan = IMP.plan(rows, Object.assign({}, o, { acct: acctId }));
     const todo = plan.filter((x) => x.status === 'new');

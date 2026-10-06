@@ -50,7 +50,7 @@
     </div>`;
 
     if (!hasData) {
-      body += `<div class="sp"></div><div class="g pad">${UI.empty('landmark', 'No transactions yet', S.settings.demo ? '' : 'Pull the latest from your banks.', `<div class="sp"></div><button class="btn primary" data-a="sync">${I('refresh-cw')} Sync now</button>`)}</div>`;
+      body += `<div class="sp"></div><div class="g pad">${App.emptyHome ? App.emptyHome() : UI.empty('landmark', 'No transactions yet', S.settings.demo ? '' : 'Pull the latest from your banks.', `<div class="sp"></div><button class="btn primary" data-a="sync">${I('refresh-cw')} Sync now</button>`)}</div>`;
       return { title: 'Clearli', actions: App.scopeBtn() + App.eyeBtn(), body };
     }
 

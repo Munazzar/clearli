@@ -285,7 +285,7 @@
         <li>Tap <b>Open SimpleFIN</b> — it opens right here. Create an account and connect your banks and cards.</li>
         <li>Under <b>Apps</b>, tap <b>New connection</b>, then <b>copy</b> the Setup Token.</li>
         <li>Close the page. Clearli picks up the token by itself and connects.</li>
-      </ol><div class="sp"></div><button class="btn primary block" data-a="obBridge">${I('landmark', 'sm')} Open SimpleFIN</button></div><div class="sp"></div>
+      </ol>${App.googleReady && App.googleReady() ? `<div class="small muted" style="margin-top:10px">${I('shield-check', 'sm')} You'll sign in with Google first. Your data is kept in your own Google Drive, and banks sync only while you're signed in.</div>` : ''}<div class="sp"></div><button class="btn primary block" data-a="obBridge">${I('landmark', 'sm')} Open SimpleFIN</button></div><div class="sp"></div>
       <label class="field"><span>Setup token</span><textarea class="inp" id="obTok" data-in="obTok" placeholder="aHR0cHM6Ly9iZXRh..." spellcheck="false" autocomplete="off" style="min-height:84px;font-family:monospace;font-size:13px">${U.esc(OB.token)}</textarea></label>
       <div class="row" style="margin:-4px 2px 12px"><button class="btn sm" data-a="obPaste">${I('file-text', 'sm')} Paste</button><div class="grow small ${host ? 'pos' : OB.token ? 'neg' : 'faint'}" id="obHost">${host ? I('check', 'sm') + ' Token for ' + U.esc(host) : OB.token ? 'This doesn\'t look like a setup token' : ''}</div></div>
       <div class="field"><span>How far back?</span>${App.histPicker(OB, 'obBack')}${Number(OB.back) > 90 || OB.back === 'custom' ? `<div class="tiny faint" style="margin:6px 4px 0">The last 3 months load right away; older history keeps loading quietly in the background.</div>` : ''}</div>
@@ -346,7 +346,17 @@
   });
   UI.on('obPaste', () => { const t = Store.N.sync('clipboard') || ''; if (t) { OB.token = t.trim(); App.onboard(); } else UI.toast('Clipboard is empty', 'info'); });
   UI.on('obConnect', async () => {
-    OB.busy = true; OB.err = ''; OB.progress = 'Claiming your token…'; App.onboard();
+    OB.busy = true; OB.err = '';
+    // Google sign-in comes first when this build has it: banks only sync while signed in (see appsync.js)
+    if (App.bankSyncBlocked && App.bankSyncBlocked()) {
+      OB.progress = 'Sign in with Google first…'; App.onboard();
+      let role = null;
+      try { role = await App.ensureGoogleMain((m) => { if (m) { OB.progress = m; App.onboard(); } }); }
+      catch (e) { OB.busy = false; OB.err = e.message; App.onboard(); return; }
+      if (role === 'member') { OB.busy = false; OB.token = ''; UI.toast('Joined your household — banks sync on the main phone', 'layers'); OB.step = 3; App.onboard(); return; }
+      if (!role) { OB.busy = false; App.onboard(); return; }
+    }
+    OB.progress = 'Claiming your token…'; App.onboard();
     const r = await Store.N.call('claimToken', OB.token);
     if (!r.ok) { OB.busy = false; OB.err = r.error || 'Could not connect'; App.onboard(); return; }
     Store.S.settings.demo = false;

@@ -1,0 +1,32 @@
+# Publishes the web dashboard (web/dist) to GitHub Pages.
+# One-time: Settings → Pages → Source: "GitHub Actions", and Settings → Secrets and variables → Actions →
+# Variables → GOOGLE_WEB_CLIENT_ID = the "Web application" OAuth client ID (public by design, not a secret).
+name: Deploy web
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash build-web.sh
+        env:
+          GOOGLE_WEB_CLIENT_ID: ${{ vars.GOOGLE_WEB_CLIENT_ID }}
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist
+      - id: deploy
+        uses: actions/deploy-pages@v4

@@ -126,10 +126,52 @@
       else if (e.auth) { s.enabled = false; ready = false; UI.toast('Sync sign-in expired — sign in again under More → Web dashboard', 'alert-triangle'); }
     } finally { busy = false; const card = document.getElementById('syncCard'); if (card) card.innerHTML = App.syncCardHtml(); }
   };
+  /* ---------- bank sync only while signed in to Google ----------
+     When this build has Google sign-in, SimpleFIN is pulled only by the main phone while it is signed in, so
+     bank data always lands in the user's own Drive vault and a signed-out phone never talks to SimpleFIN. */
+  let gateToasted = false;
+  App.googleReady = () => !!(window.GCONFIG || {}).appClientId;
+  App.bankSyncBlocked = function () {
+    if (!App.googleReady() || Store.S.settings.demo) return '';
+    const s = sy();
+    if (!s || !s.enabled) return 'Sign in with Google to sync your banks';
+    if (s.backend === 'drive' && s.needSignIn) return 'Sign in to Google again to sync your banks';
+    return ''; // signed in (or on the old Firebase sync, which has its own sign-in); members never pull banks
+  };
+  const _storeSync = Store.sync;
+  Store.sync = async function (opts) { const why = App.bankSyncBlocked(); if (why) return { ok: false, error: why, signin: true }; return _storeSync(opts); };
+  const _bfRun = Store.backfillRun;
+  Store.backfillRun = async function (onStep) { if (App.bankSyncBlocked()) return; return _bfRun(onStep); };
+  // after signing in: catch up on banks right away (normal 6-hour auto-sync rules don't apply — we were blocked)
+  App.afterGoogle = function () {
+    if (isMember() || Store.S.settings.demo || !Store.N.sync('hasCredential')) return;
+    setTimeout(() => App.doSync({ silent: true }).then(() => App.runBackfill()), 800);
+  };
+  // Used by onboarding before connecting SimpleFIN. Resolves 'main', 'member' (joined a household) or null (cancelled).
+  App.ensureGoogleMain = async function (progress) {
+    if (!App.bankSyncBlocked()) return isMember() ? 'member' : 'main';
+    const s = sy();
+    if (s && s.enabled && s.needSignIn) { await App.googleSignIn(s.email); s.needSignIn = false; s.lastErr = ''; Store.save(); return 'main'; }
+    return App.turnOnDrive(progress);
+  };
+  App.bankGateHtml = function () {
+    const why = App.bankSyncBlocked();
+    if (!why || !Store.N.sync('hasCredential')) return '';
+    return `<div class="g pad"><div class="row" style="align-items:flex-start">${UI.bubble('shield-check', '#FFB547')}<div class="grow"><div class="h3">${U.esc(why)}</div><div class="small muted" style="margin-top:3px">Clearli syncs with SimpleFIN only while you're signed in, so everything is saved to your own Google Drive.</div></div></div><div class="sp"></div><button class="btn primary block" data-a="${sy() && sy().needSignIn ? 'syReauth' : 'syG'}">${App.gIcon()} Sign in with Google</button></div><div class="sp"></div>`;
+  };
+
   // On a member phone "sync" means: get the latest from the main phone (banks are only pulled there)
   const _doSync = App.doSync;
   App.doSync = async function (opts) {
-    if (!isMember()) return _doSync(opts);
+    if (!isMember()) {
+      const why = App.bankSyncBlocked();
+      if (why && Store.N.sync('hasCredential')) {
+        if (!opts || !opts.silent) { UI.toast(why, 'alert-triangle'); App.go('more'); App.push('websync'); }
+        else if (!gateToasted) { gateToasted = true; UI.toast(why + ' — More → Web dashboard & sync', 'alert-triangle'); }
+        return { ok: false, error: why, signin: true };
+      }
+      return _doSync(opts);
+    }
     const btn = document.querySelector('[data-a="sync"] .ic'); if (btn) btn.style.animation = 'sp 1s linear infinite';
     await App.cloudTick(true);
     if (btn) btn.style.animation = '';
@@ -216,7 +258,7 @@
           <div class="item tap" data-a="syWipe">${UI.bubble('trash-2', '#FF6B81')}<div class="grow"><div class="t">Delete cloud copy</div><div class="s">${isDrive() ? 'Removes Clearli\'s data from your Google Drive' : 'Removes all encrypted data from Firebase'}</div></div></div>
         </div>`;
     } else {
-      b += `<div class="g pad"><div class="row" style="align-items:flex-start">${UI.bubble('shield-check', '#43D9B8')}<div class="grow"><div class="h3">Your data, your Google Drive</div><div class="small muted" style="margin-top:3px">Clearli syncs through a private folder in <b>your own</b> Google Drive that only Clearli can open — it doesn't show up in your Drive files and there's no Clearli server. Your SimpleFIN key never leaves this phone.</div></div></div></div><div class="sp"></div>
+      b += `<div class="g pad"><div class="row" style="align-items:flex-start">${UI.bubble('shield-check', '#43D9B8')}<div class="grow"><div class="h3">Your data, your Google Drive</div><div class="small muted" style="margin-top:3px">Clearli syncs through a private folder in <b>your own</b> Google Drive that only Clearli can open — it doesn't show up in your Drive files and there's no Clearli server. Your SimpleFIN key never leaves this phone.</div></div></div>${App.bankSyncBlocked() && Store.N.sync('hasCredential') ? `<div class="small warn" style="margin-top:10px">${I('alert-triangle', 'sm')} Bank sync is paused until you sign in.</div>` : ''}</div><div class="sp"></div>
         <div class="list g flat">${[['monitor', 'Web dashboard', 'See everything on a big screen'], ['layers', 'Household phones', 'Your partner signs in with the same Google account'], ['refresh-cw', 'Stays signed in', 'One sign-in, then it renews itself']].map(([ic, t, d]) => `<div class="item">${UI.bubble(ic, '#7C8CFF')}<div class="grow"><div class="t">${t}</div><div class="s">${d}</div></div></div>`).join('')}</div><div class="sp"></div>`;
       if (F.err) b += `<div class="small neg" style="margin:10px 4px">${I('alert-triangle', 'sm')} ${U.esc(F.err)}</div>`;
       b += F.busy ? `<div class="row" style="justify-content:center"><div class="spin"></div><span class="muted">${U.esc(F.busy === true ? 'Waiting for Google…' : F.busy)}</span></div>` : `<button class="btn primary block" data-a="syG">${App.gIcon()} Sign in with Google</button>`;
@@ -224,41 +266,79 @@
     return { title: 'Web dashboard & sync', body: b };
   };
   UI.on('syF', (v, el) => { F[el.dataset.x] = v; });
+
+  /* Sign in with Google and make this the main phone. Resolves 'main', 'member' (joined instead) or null (cancelled).
+     A vault started on the web (web-first users) is brought onto this phone — merged with what's here — and the
+     phone takes over as the main device; the web notices and follows it. */
+  App.turnOnDrive = async function (progress) {
+    progress = progress || (() => { });
+    Cloud.device = 'phone';
+    const email = await App.googleSignIn();
+    progress('Checking your Drive…');
+    const meta = await Cloud.meta();
+    // Only one phone may be the main (bank-connected) phone — two would overwrite each other.
+    if (meta && meta.by === 'phone' && Date.now() - meta.version < 14 * 86400000) {
+      progress(false);
+      const pick = await UI.choice('Another phone is already the main phone', `Clearli was uploaded from another phone ${U.ago(meta.version)}. A household should have one main phone that connects to the banks; other phones join as members.`, [
+        { id: 'join', label: 'Join as a household member', primary: true },
+        { id: 'main', label: 'Make this the main phone instead' },
+      ]);
+      if (pick === 'join') {
+        progress('Downloading…');
+        await joinAsMember(email, meta);
+        Store.S.settings.demo = false; Store.saveNow();
+        return 'member';
+      }
+      if (pick !== 'main') { Drive.unuse(); return null; }
+    }
+    let adopted = false;
+    if (meta && meta.by === 'web') {
+      progress('Bringing in your web data…');
+      const r = await Cloud.pullSnapshot(meta);
+      App.adoptVault(r.json); adopted = true; // op files waiting in Drive are merged by the first cloudTick below
+    }
+    Store.S.sync = { enabled: true, backend: 'drive', role: 'main', email, lastPush: 0 };
+    ready = true; Store.saveNow();
+    progress('Uploading…');
+    await App.cloudTick(true);
+    if (sy().lastErr) throw new Error(sy().lastErr);
+    if (adopted) UI.toast('Brought in your data from Clearli Web', 'layers');
+    return 'main';
+  };
+  // Take over a vault the web dashboard kept. Keeps anything this phone already has (union; the vault wins on conflicts).
+  App.adoptVault = function (json) {
+    const old = Store.S; const R = JSON.parse(json); const f = Store.fresh();
+    const own = !old.settings.demo && Object.keys(old.txns || {}).length > 0;
+    const S = R;
+    for (const k of Object.keys(f)) if (S[k] === undefined) S[k] = f[k];
+    if (own) {
+      for (const k of ['txns', 'accounts', 'conns', 'edits', 'reviewed', 'recurringOverrides']) S[k] = Object.assign({}, old[k] || {}, S[k] || {});
+      for (const k of ['rules', 'goals', 'assets', 'imports', 'cats']) { const have = new Set((S[k] || []).map((x) => x.id)); S[k] = (S[k] || []).concat((old[k] || []).filter((x) => x && !have.has(x.id))); }
+      S.syncLog = (S.syncLog || []).concat(old.syncLog || []).sort((a, b) => b.at - a.at).slice(0, 30);
+      S.lastSync = old.lastSync || 0; S.oldest = Math.min(old.oldest || Infinity, S.oldest || Infinity); if (!isFinite(S.oldest)) S.oldest = 0;
+      S.backfill = old.backfill;
+    } else { S.lastSync = old.lastSync || 0; S.backfill = null; }
+    S.settings = Object.assign({}, f.settings, R.settings);
+    KEEP_LOCAL.forEach((k) => { if (old.settings[k] !== undefined) S.settings[k] = old.settings[k]; });
+    S.settings.demo = false;
+    S.sync = old.sync; S.quota = old.quota;
+    for (const c of E.DEFAULT_CATS) if (!S.cats.find((x) => x.id === c.id)) S.cats.push(Object.assign({}, c));
+    Store.S = S; U.currency = S.settings.currency || 'USD';
+    Store.recompute();
+    Store.saveNow();
+  };
   UI.on('syG', async () => {
     F.err = ''; F.busy = true; App.render();
     try {
-      Cloud.device = 'phone';
-      const email = await App.googleSignIn();
-      F.busy = 'Checking your Drive…'; App.render();
-      const meta = await Cloud.meta();
-      // Only one phone may be the main (bank-connected) phone — two would overwrite each other.
-      if (meta && meta.by === 'phone' && Date.now() - meta.version < 14 * 86400000) {
-        F.busy = false; App.render();
-        const pick = await UI.choice('Another phone is already the main phone', `Clearli was uploaded from another phone ${U.ago(meta.version)}. A household should have one main phone that connects to the banks; other phones join as members.`, [
-          { id: 'join', label: 'Join as a household member', primary: true },
-          { id: 'main', label: 'Make this the main phone instead' },
-        ]);
-        if (pick === 'join') {
-          F.busy = 'Downloading…'; App.render();
-          await joinAsMember(email, meta);
-          Store.S.settings.onboarded = true; Store.S.settings.demo = false; Store.saveNow();
-          F.busy = false; App.render(); UI.toast('Joined your household', 'layers');
-          return;
-        }
-        if (pick !== 'main') { Drive.unuse(); F.busy = false; App.render(); return; }
-      }
-      Store.S.sync = { enabled: true, backend: 'drive', role: 'main', email, lastPush: 0 };
-      ready = true; Store.saveNow();
-      F.busy = 'Uploading…'; App.render();
-      await App.cloudTick(true);
-      if (sy().lastErr) throw new Error(sy().lastErr);
-      UI.toast('Sync is on — saved to your Google Drive', 'shield-check');
+      const role = await App.turnOnDrive((m) => { F.busy = m; App.render(); });
+      if (role === 'member') { Store.S.settings.onboarded = true; Store.saveNow(); UI.toast('Joined your household', 'layers'); }
+      else if (role === 'main') { UI.toast('Sync is on — saved to your Google Drive', 'shield-check'); App.afterGoogle(); }
     } catch (e) { F.err = e.message; }
     F.busy = false; App.render();
   });
   UI.on('syReauth', async () => {
     const s = sy();
-    try { await App.googleSignIn(s.email); s.needSignIn = false; s.lastErr = ''; Store.save(); await App.cloudTick(true); App.render(); UI.toast('Signed in again', 'check'); }
+    try { await App.googleSignIn(s.email); s.needSignIn = false; s.lastErr = ''; Store.save(); await App.cloudTick(true); App.render(); UI.toast('Signed in again', 'check'); App.afterGoogle(); }
     catch (e) { UI.toast(e.message, 'alert-triangle'); }
   });
   // Firebase → Google Drive, one tap. The phone has everything locally, so it simply re-uploads it.

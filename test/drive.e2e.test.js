@@ -96,8 +96,11 @@ const mockNative = () => {
   await P2.evaluate(() => App.cloudTick(true)); await P2.waitForTimeout(1500);
   ok('401 → silent token refresh, no sign-in', await P2.evaluate(() => window.__signins === 0 && window.__refresh > 0 && !Store.S.sync.lastErr));
 
-  /* 5) SimpleFIN in-app: copied setup token is picked up when the page closes */
+  /* 5) SimpleFIN in-app: copied setup token is picked up when the page closes (a new user: empty Drive) */
+  G.DRIVE.clear();
   const P3 = await phone();
+  ok('signed out: SimpleFIN sync is blocked', await P3.evaluate(async () => { Store.S.settings.demo = false; Native.hasCredential = () => true; let called = 0; Native.fetchAccounts = () => { called++; }; const r = await Store.sync(); return r.signin === true && called === 0; }));
+  await P3.evaluate(() => { Native.hasCredential = () => false; });
   await P3.click('[data-a=obNext]'); await P3.click('[data-a=obNext]');
   await P3.screenshot({ path: 'test/shots/d-sfin.png' });
   await P3.click('[data-a=obBridge]');
@@ -105,7 +108,72 @@ const mockNative = () => {
   const tok = Buffer.from('https://bridge.simplefin.org/simplefin/claim/DEMO123').toString('base64');
   await P3.evaluate((t) => { Native.clipboard = () => t; Native.claimToken = (x, id) => { window.__claimed = x; }; App.onTabClosed(); }, tok);
   await P3.waitForTimeout(1200);
+  ok('Google sign-in happened before connecting', await P3.evaluate(() => window.__signins === 1 && Store.S.sync && Store.S.sync.role === 'main'));
   ok('token picked up and connect started', await P3.evaluate((t) => window.__claimed === t, tok));
+
+  /* 6) web-first: someone with no phone app signs in on the web and imports a bank file from any country */
+  G.DRIVE.clear();
+  const ctx2 = await b.newContext({ viewport: { width: 1440, height: 900 } });
+  const W2 = await ctx2.newPage(); W2.on('pageerror', (e) => errs.push(e.message));
+  await ctx2.route(/googleapis\.com/, G.route);
+  await ctx2.route('**/js/gconfig.js', (r) => r.fulfill({ contentType: 'text/javascript', body: "window.GCONFIG={webClientId:'test-web.apps.googleusercontent.com',appClientId:'',appClientSecret:''};" }));
+  await ctx2.route(/accounts\.google\.com\/o\/oauth2\/v2\/auth/, (r) => { const u = new URL(r.request().url()); r.fulfill({ status: 302, headers: { location: u.searchParams.get('redirect_uri') + '#access_token=wt-' + (tokN++) + '&expires_in=3599&state=' + u.searchParams.get('state') + '&token_type=Bearer' } }); });
+  await W2.goto('http://localhost:8124/'); await W2.waitForTimeout(600);
+  await W2.click('#wGo'); await W2.waitForTimeout(2000);
+  ok('no data yet → web-first welcome', !!(await W2.$('#wFresh')));
+  await W2.screenshot({ path: 'test/shots/d-web-welcome.png' });
+  await W2.click('#wFresh'); await W2.waitForTimeout(2000);
+  const vault2 = () => [...G.DRIVE.values()].find((f) => f.name === 'clearli-vault.json');
+  ok('web created its own vault in Drive', !!vault2() && vault2().appProperties.by === 'web' && (await W2.evaluate(() => CW.role)) === 'main');
+  await W2.screenshot({ path: 'test/shots/d-web-empty.png' });
+  // a German bank export: semicolons, day-first dates, decimal commas, Windows-1252 encoding
+  const de = 'Buchungstag;Valuta;Buchungstext;Verwendungszweck;Betrag;W\xe4hrung\r\n06.10.2026;06.10.2026;Lastschrift;REWE Markt Berlin;-23,45;EUR\r\n05.10.2026;05.10.2026;Gutschrift;Gehalt Oktober;2.500,00;EUR\r\n01.10.2026;01.10.2026;Dauerauftrag;Miete Oktober;-1.150,00;EUR\r\n';
+  await W2.evaluate((bytes) => {
+    const buf = new Uint8Array(bytes).buffer; window.__deText = CW.decodeText(buf);
+    Native.importFile = (id) => { const k = 'imp' + Date.now(); const take0 = Native.take; Native.take = (x) => (x === k ? (Native.take = take0, JSON.stringify({ ok: true, content: window.__deText })) : take0(x)); setTimeout(() => __nativeCb(id, k), 0); };
+  }, [...Buffer.from(de, 'latin1')]);
+  ok('legacy-encoded file decoded', await W2.evaluate(() => window.__deText.includes('Währung')));
+  await W2.click('[data-a=importFile]'); await W2.waitForTimeout(600);
+  ok('first import defaults to a new everyday account', !!(await W2.$('.sheet.on [data-a=imAcct][data-x=new] .check.on')));
+  await W2.fill('.sheet.on [data-x=newName]', 'Girokonto'); await W2.dispatchEvent('.sheet.on [data-x=newName]', 'input');
+  await W2.screenshot({ path: 'test/shots/d-web-import.png' });
+  await W2.click('.sheet.on [data-a=imGo]'); await W2.waitForTimeout(1500);
+  await W2.click('.sheet.on [data-a=impDone]').catch(() => { }); await W2.waitForTimeout(2500);
+  const deTx = await W2.evaluate(() => Object.values(Store.S.txns).map((t) => [U.dayKey(t.ts), t.amt]).sort());
+  ok('German file parsed (dates, decimal commas)', JSON.stringify(deTx) === JSON.stringify([['2026-10-01', -1150], ['2026-10-05', 2500], ['2026-10-06', -23.45]]));
+  const zlib = require('zlib');
+  const readVault = () => { const d = JSON.parse(vault2().content); const raw = Buffer.from(d.data, 'base64'); return JSON.parse((d.gz ? zlib.gunzipSync(raw) : raw).toString()); };
+  ok('import saved as a snapshot in the user\'s Drive', Object.keys(readVault().txns).length === 3 && ![...G.DRIVE.values()].some((f) => f.name.startsWith('clearli-op-')));
+  ok('currency follows the browser region (EUR expected only for EU locales)', (await W2.evaluate(() => Store.S.settings.currency)) === (await W2.evaluate(() => CW.guessCurrency())));
+  await W2.screenshot({ path: 'test/shots/d-web-first-home.png' });
+  // an edit made elsewhere (op file) is merged into the web's snapshot
+  const k3 = Object.keys(readVault().txns)[0];
+  const opBody = JSON.stringify({ at: Date.now(), by: 'member', ops: [{ t: 'edit', k: k3, v: { note: 'from another device' } }] });
+  G.DRIVE.set('fop', { id: 'fop', name: 'clearli-op-test.json', appProperties: { at: String(Date.now()), by: 'member' }, createdTime: new Date().toISOString(), content: opBody });
+  await W2.evaluate(() => CW.refresh(true)); await W2.waitForTimeout(2000);
+  ok('web main merged op file and cleaned it up', (readVault().edits[k3] || {}).note === 'from another device' && !G.DRIVE.has('fop'));
+
+  /* 7) the same person installs the phone app later: connecting SimpleFIN signs in, brings the web data over, and the phone takes over */
+  const P4 = await phone();
+  await P4.click('[data-a=obNext]'); await P4.click('[data-a=obNext]');
+  const now = Math.floor(Date.now() / 1000);
+  await P4.evaluate((now) => {
+    const R = {}; const take0 = Native.take; Native.take = (k) => (k in R ? (() => { const v = R[k]; delete R[k]; return v; })() : take0(k));
+    const cbk = (id, o) => { const k = 's' + Math.random().toString(36).slice(2); R[k] = JSON.stringify(o); setTimeout(() => __nativeCb(id, k), 30); };
+    let cred = false;
+    Native.hasCredential = () => cred; Native.accessHost = () => (cred ? 'beta-bridge.simplefin.org' : null);
+    Native.claimToken = (t, id) => { cred = true; cbk(id, { ok: true }); };
+    Native.fetchAccounts = (a, b2, bo, id) => cbk(id, { ok: true, body: JSON.stringify({ errlist: [], connections: [{ conn_id: 'CON-1', name: 'Chase', org_id: 'chase', sfin_url: 'https://x' }], accounts: [{ id: 'ACT-1', name: 'Chase Checking', conn_id: 'CON-1', currency: 'USD', balance: '100.00', 'balance-date': now, transactions: [{ id: 'T1', posted: now - 86400, amount: '-4.50', description: 'STARBUCKS STORE 1234' }] }] }) });
+    Native.decodeToken = () => 'https://beta-bridge.simplefin.org/simplefin/claim/X';
+  }, now);
+  await P4.evaluate(() => { UI.actions.obTok('dGVzdHRva2VuMTIzNDU2Nzg5MA=='); UI.actions.obConnect(); }); await P4.waitForTimeout(4000);
+  ok('phone brought in web data and added SimpleFIN', await P4.evaluate(() => Store.S.sync.role === 'main' && Object.values(Store.S.txns).some((t) => t.amt === -1150) && Object.values(Store.S.txns).some((t) => t.amt === -4.5)));
+  ok('vault now kept by the phone', vault2().appProperties.by === 'phone' && Object.keys(readVault().txns).length === 4);
+  await W2.evaluate(() => CW.refresh(true)); await W2.waitForTimeout(2000);
+  ok('web switched to following the phone', await W2.evaluate(() => CW.role === 'member' && Object.keys(Store.S.txns).length === 4));
+  await W2.evaluate((k) => { Store.setEdit(k, { name: 'Rent (web)' }); Store.commit(); }, k3); await W2.waitForTimeout(2500);
+  ok('web edit after takeover goes as op file', [...G.DRIVE.values()].some((f) => f.name.startsWith('clearli-op-')) && vault2().appProperties.by === 'phone');
+  await ctx2.close();
 
   console.log('drive requests', G.stats.driveReq);
   console.log(errs.length ? errs.join('\n') : 'NO ERRORS');

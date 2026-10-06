@@ -8,5 +8,7 @@ mkdir -p web/dist/js && cp android/assets/www/js/*.js web/dist/js/ && rm web/dis
 cp web/index.html web/web.js web/web.css web/manifest.webmanifest web/dist/
 # the web build only needs the Web client ID — keep the phone's Desktop client out of the public site
 sed -i -E "s/(appClientId|appClientSecret): '[^']*'/\\1: ''/" web/dist/js/gconfig.js
+# the Web client ID can come from the environment (CI: repository variable GOOGLE_WEB_CLIENT_ID)
+[ -n "$GOOGLE_WEB_CLIENT_ID" ] && sed -i -E "s/webClientId: '[^']*'/webClientId: '${GOOGLE_WEB_CLIENT_ID}'/" web/dist/js/gconfig.js
 touch web/dist/.nojekyll
 echo "web/dist ready: $(du -sh web/dist | cut -f1)"
