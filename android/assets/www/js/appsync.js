@@ -1,7 +1,8 @@
-/* Clearli (phone) — sync for the web dashboard and household phones.
-   Storage: the user's own Google Drive (private app folder). Older installs may still be on Firebase
-   (end-to-end encrypted) until they tap "Move to Google Drive".
-   Phone = source of truth: pulls edits made on the web, applies them, uploads a fresh snapshot. */
+/* Clearli (phone) — sync through the user's own Google Drive (private app folder).
+   Every device signed in with the same Google account — this phone, another phone, the web — is an equal:
+   each one pulls what the others saved, re-applies its own edits on top and saves (Drive.peerSync).
+   Older installs may still be on Firebase (end-to-end encrypted) until they tap "Move to Google Drive";
+   a vault still written by a 1.4.0 phone is followed as a "member" (edits sent as op files) until it updates. */
 (function () {
   if (window.CLEARLI_WEB) return;
   const I = U.icon;
@@ -59,7 +60,7 @@
       clearTimeout(timer); timer = setTimeout(() => App.cloudTick(), 1500);
       return;
     }
-    dirty = true; clearTimeout(timer); timer = setTimeout(() => App.cloudTick(), 4000);
+    dirty = true; clearTimeout(timer); timer = setTimeout(() => App.cloudTick(), 2000);
   };
 
   /* ---------- household member phone: follows the main phone's data ---------- */
@@ -97,12 +98,62 @@
     if (!(ae && /INPUT|TEXTAREA|SELECT/.test(ae.tagName))) { App.render(); if (UI.sheets.length) UI.renderSheet(); }
   }
 
+  /* ---------- Drive: this phone as one of several equal devices ---------- */
+  const LOCAL_KEYS = ['sync', 'quota', 'backfill'];
+  // install what another device saved, keeping what belongs to this phone only
+  App.installRemote = function (R) {
+    const old = Store.S; const f = Store.fresh();
+    for (const k of Object.keys(f)) if (R[k] === undefined) R[k] = f[k];
+    R.settings = Object.assign({}, f.settings, R.settings);
+    KEEP_LOCAL.forEach((k) => { if (old.settings[k] !== undefined) R.settings[k] = old.settings[k]; });
+    R.settings.demo = false;
+    LOCAL_KEYS.forEach((k) => { R[k] = old[k]; });
+    for (const c of E.DEFAULT_CATS) if (!R.cats.find((x) => x.id === c.id)) R.cats.push(Object.assign({}, c));
+    Store.S = R; U.currency = R.settings.currency || 'USD';
+    return R;
+  };
+  // first sync of a phone that already has its own data: keep everything from both (the cloud copy wins on conflicts)
+  App.unionInto = function (R, old) {
+    if (old.settings.demo || !Object.keys(old.txns || {}).length) return false;
+    for (const k of ['txns', 'accounts', 'conns', 'edits', 'reviewed', 'recurringOverrides']) R[k] = Object.assign({}, old[k] || {}, R[k] || {});
+    for (const k of ['rules', 'goals', 'assets', 'imports', 'cats']) { const have = new Set((R[k] || []).map((x) => x.id)); R[k] = (R[k] || []).concat((old[k] || []).filter((x) => x && !have.has(x.id))); }
+    R.syncLog = (R.syncLog || []).concat(old.syncLog || []).sort((a, b) => b.at - a.at).slice(0, 30);
+    R.lastSync = Math.max(old.lastSync || 0, R.lastSync || 0);
+    R.oldest = Math.min(old.oldest || Infinity, R.oldest || Infinity); if (!isFinite(R.oldest)) R.oldest = 0;
+    return true;
+  };
+  async function peerTick(meta, force) {
+    const s = sy();
+    if (!force && !dirty && s.base && meta && meta.version === s.lastVersion) {
+      // nothing new here and no newer vault: only op files from older devices could be waiting
+      const b = await Cloud.pullOps(); if (!b.length) { s.lastCheck = Date.now(); return; }
+    }
+    dirty = false;
+    const r = await Drive.peerSync({ meta, local: Store.S, base: s.base || null, version: s.lastVersion || 0, adopt: App.installRemote, merge: App.unionInto, force: force && !s.base });
+    s.base = r.base; s.lastVersion = r.version; s.lastCheck = Date.now(); s.lastErr = ''; s.needSignIn = false;
+    if (r.pushed) { s.lastPush = Date.now(); s.lastSize = 0; }
+    if (r.remote) s.lastPull = Date.now();
+    Store.recompute(); Store.save();
+    if (r.applied) UI.toast(`Applied ${r.applied} change${r.applied > 1 ? 's' : ''} from your other devices`, 'layers');
+    if (r.remote || r.applied) {
+      const ae = document.activeElement;
+      if (!(ae && /INPUT|TEXTAREA|SELECT/.test(ae.tagName))) { App.render(); if (UI.sheets.length) UI.renderSheet(); }
+    }
+  }
+
   App.cloudTick = async function (force) {
     const s = sy();
     if (busy || !s || !s.enabled) return;
     if (!ready && !(await App.cloudInit())) return;
     busy = true;
     try {
+      if (isDrive()) {
+        const meta = await Cloud.meta();
+        if (isMember() && !Drive.legacyMain(meta)) { s.role = 'peer'; memberBase = null; Store.save(); } // that phone updated: be equals now
+        if (isMember()) { await memberTick(force); return; }
+        await peerTick(meta, force);
+        return;
+      }
       if (isMember()) { await memberTick(force); return; }
       const batches = await Cloud.pullOps();
       if (batches.length) {
@@ -147,11 +198,11 @@
     if (isMember() || Store.S.settings.demo || !Store.N.sync('hasCredential')) return;
     setTimeout(() => App.doSync({ silent: true }).then(() => App.runBackfill()), 800);
   };
-  // Used by onboarding before connecting SimpleFIN. Resolves 'main', 'member' (joined a household) or null (cancelled).
+  // Used by onboarding before connecting SimpleFIN. Resolves 'peer', 'member' (legacy household) or null (cancelled).
   App.ensureGoogleMain = async function (progress) {
-    if (!App.bankSyncBlocked()) return isMember() ? 'member' : 'main';
+    if (!App.bankSyncBlocked()) return isMember() ? 'member' : 'peer';
     const s = sy();
-    if (s && s.enabled && s.needSignIn) { await App.googleSignIn(s.email); s.needSignIn = false; s.lastErr = ''; Store.save(); return 'main'; }
+    if (s && s.enabled && s.needSignIn) { await App.googleSignIn(s.email); s.needSignIn = false; s.lastErr = ''; Store.save(); return 'peer'; }
     return App.turnOnDrive(progress);
   };
   App.bankGateHtml = function () {
@@ -184,30 +235,26 @@
   App.joinScreen = function () {
     const el = document.getElementById('onb');
     el.style.display = 'flex'; document.body.classList.add('onb');
-    el.innerHTML = `<div class="inner"><div class="logo">${UI.bubble('layers', '#43D9B8')}</div><h1 class="hero-t">Join your household</h1><p class="hero-s">Use the same Clearli as the main phone. Bank connections stay on that phone; this one sees everything and can edit.</p>
-      <div class="g pad"><div class="small muted" style="margin-bottom:14px">Sign in with the <b>same Google account</b> the main phone uses for sync. You only do this once — Clearli stays signed in.</div>
+    el.innerHTML = `<div class="inner"><div class="logo">${UI.bubble('layers', '#43D9B8')}</div><h1 class="hero-t">Sign in with Google</h1><p class="hero-s">Your data lives in your own Google Drive and stays in sync on the web and every phone you sign in on.</p>
+      <div class="g pad"><div class="small muted" style="margin-bottom:14px">Use the <b>same Google account</b> as on the web or your other phone. You only do this once — Clearli stays signed in.</div>
         ${J.err ? `<div class="small neg" style="margin:0 4px 12px">${I('alert-triangle', 'sm')} ${U.esc(J.err)}</div>` : ''}
         ${J.busy ? `<div class="row" style="justify-content:center;padding:10px"><div class="spin"></div><span class="muted">${U.esc(J.busy === true ? 'Waiting for Google…' : J.busy)}</span></div>` : `<button class="btn primary block" data-a="joinGo">${App.gIcon()} Sign in with Google</button>`}
-      </div><div class="sp"></div><button class="btn block" data-a="joinBack">${I('chevron-left')} Back</button>
-      <p class="tiny faint center" style="margin-top:12px">On the main phone, sync must be on (More → Web dashboard & sync).</p></div>`;
+      </div><div class="sp"></div><button class="btn block" data-a="joinBack">${I('chevron-left')} Back</button></div>`;
   };
-  UI.on('obJoin', () => App.joinScreen());
-  UI.on('joinBack', () => { if (J.busy) Store.N.sync('googleCancel'); J.busy = false; App.restartOnboarding(); });
-  UI.on('joinGo', async () => {
+  // Onboarding "Sign in with Google": same account on the web or another phone → everything comes over
+  UI.on('obJoin', async () => {
     J.err = ''; J.busy = true; App.joinScreen();
     try {
-      Cloud.device = 'member';
-      const email = await App.googleSignIn();
-      J.busy = 'Downloading…'; App.joinScreen();
-      const meta = await Cloud.meta();
-      if (!meta) throw new Error('No Clearli data in ' + email + ' yet. Turn on sync on the main phone first, with this Google account.');
-      await joinAsMember(email, meta);
-      Store.S.settings.onboarded = false; Store.saveNow();
+      const role = await App.turnOnDrive((m) => { if (m) { J.busy = m; App.joinScreen(); } });
       J.busy = false;
-      UI.toast('Joined — ' + Object.keys(Store.S.accounts).length + ' accounts', 'check');
-      App.onboardStep(3);
+      if (!role) { App.restartOnboarding(); return; }
+      const n = Object.keys(Store.S.txns).length;
+      if (n || role === 'member') { UI.toast(n ? `Signed in — ${U.num(n)} transactions from your Drive` : 'Joined your household', 'check'); App.onboardStep(3); }
+      else { UI.toast('Signed in — now add your banks or a bank file', 'check'); App.restartOnboarding(); }
     } catch (e) { J.err = e.message; J.busy = false; App.joinScreen(); }
   });
+  UI.on('joinBack', () => { if (J.busy) Store.N.sync('googleCancel'); J.busy = false; App.restartOnboarding(); });
+  UI.on('joinGo', () => UI.actions.obJoin());
   async function joinAsMember(email, meta) {
     const keep = Store.S.settings;
     Store.S = Store.fresh(); Store.S.settings = Object.assign(Store.S.settings, keep);
@@ -267,17 +314,16 @@
   };
   UI.on('syF', (v, el) => { F[el.dataset.x] = v; });
 
-  /* Sign in with Google and make this the main phone. Resolves 'main', 'member' (joined instead) or null (cancelled).
-     A vault started on the web (web-first users) is brought onto this phone — merged with what's here — and the
-     phone takes over as the main device; the web notices and follows it. */
+  /* Sign in with Google and sync this phone with the user's Drive. Whatever is already there (from the web or
+     another phone) is brought in and merged with this phone's data. Resolves 'peer', 'member' or null (cancelled). */
   App.turnOnDrive = async function (progress) {
     progress = progress || (() => { });
     Cloud.device = 'phone';
     const email = await App.googleSignIn();
     progress('Checking your Drive…');
     const meta = await Cloud.meta();
-    // Only one phone may be the main (bank-connected) phone — two would overwrite each other.
-    if (meta && meta.by === 'phone' && Date.now() - meta.version < 14 * 86400000) {
+    // A phone on Clearli 1.4.0 or older overwrites the vault without merging, so it must stay the only writer.
+    if (Drive.legacyMain(meta)) {
       progress(false);
       const pick = await UI.choice('Another phone is already the main phone', `Clearli was uploaded from another phone ${U.ago(meta.version)}. A household should have one main phone that connects to the banks; other phones join as members.`, [
         { id: 'join', label: 'Join as a household member', primary: true },
@@ -291,48 +337,20 @@
       }
       if (pick !== 'main') { Drive.unuse(); return null; }
     }
-    let adopted = false;
-    if (meta && meta.by === 'web') {
-      progress('Bringing in your web data…');
-      const r = await Cloud.pullSnapshot(meta);
-      App.adoptVault(r.json); adopted = true; // op files waiting in Drive are merged by the first cloudTick below
-    }
-    Store.S.sync = { enabled: true, backend: 'drive', role: 'main', email, lastPush: 0 };
+    if (Store.S.settings.demo) { const keep = Store.S.settings; Store.S = Store.fresh(); Store.S.settings = Object.assign(Store.S.settings, keep, { demo: false }); }
+    Store.S.sync = { enabled: true, backend: 'drive', role: 'peer', email, lastPush: 0 };
     ready = true; Store.saveNow();
-    progress('Uploading…');
+    progress(meta ? 'Bringing in your data…' : 'Saving to your Drive…');
     await App.cloudTick(true);
     if (sy().lastErr) throw new Error(sy().lastErr);
-    if (adopted) UI.toast('Brought in your data from Clearli Web', 'layers');
-    return 'main';
-  };
-  // Take over a vault the web dashboard kept. Keeps anything this phone already has (union; the vault wins on conflicts).
-  App.adoptVault = function (json) {
-    const old = Store.S; const R = JSON.parse(json); const f = Store.fresh();
-    const own = !old.settings.demo && Object.keys(old.txns || {}).length > 0;
-    const S = R;
-    for (const k of Object.keys(f)) if (S[k] === undefined) S[k] = f[k];
-    if (own) {
-      for (const k of ['txns', 'accounts', 'conns', 'edits', 'reviewed', 'recurringOverrides']) S[k] = Object.assign({}, old[k] || {}, S[k] || {});
-      for (const k of ['rules', 'goals', 'assets', 'imports', 'cats']) { const have = new Set((S[k] || []).map((x) => x.id)); S[k] = (S[k] || []).concat((old[k] || []).filter((x) => x && !have.has(x.id))); }
-      S.syncLog = (S.syncLog || []).concat(old.syncLog || []).sort((a, b) => b.at - a.at).slice(0, 30);
-      S.lastSync = old.lastSync || 0; S.oldest = Math.min(old.oldest || Infinity, S.oldest || Infinity); if (!isFinite(S.oldest)) S.oldest = 0;
-      S.backfill = old.backfill;
-    } else { S.lastSync = old.lastSync || 0; S.backfill = null; }
-    S.settings = Object.assign({}, f.settings, R.settings);
-    KEEP_LOCAL.forEach((k) => { if (old.settings[k] !== undefined) S.settings[k] = old.settings[k]; });
-    S.settings.demo = false;
-    S.sync = old.sync; S.quota = old.quota;
-    for (const c of E.DEFAULT_CATS) if (!S.cats.find((x) => x.id === c.id)) S.cats.push(Object.assign({}, c));
-    Store.S = S; U.currency = S.settings.currency || 'USD';
-    Store.recompute();
-    Store.saveNow();
+    return 'peer';
   };
   UI.on('syG', async () => {
     F.err = ''; F.busy = true; App.render();
     try {
       const role = await App.turnOnDrive((m) => { F.busy = m; App.render(); });
       if (role === 'member') { Store.S.settings.onboarded = true; Store.saveNow(); UI.toast('Joined your household', 'layers'); }
-      else if (role === 'main') { UI.toast('Sync is on — saved to your Google Drive', 'shield-check'); App.afterGoogle(); }
+      else if (role === 'peer') { UI.toast('Signed in — synced with your Google Drive', 'shield-check'); App.afterGoogle(); }
     } catch (e) { F.err = e.message; }
     F.busy = false; App.render();
   });
@@ -361,7 +379,7 @@
         App.render(); UI.toast('This phone now follows Google Drive', 'check');
         return;
       }
-      Store.S.sync = { enabled: true, backend: 'drive', role: 'main', email, lastPush: 0 };
+      Store.S.sync = { enabled: true, backend: 'drive', role: 'peer', email, lastPush: 0 };
       Cloud.device = 'phone'; ready = true; Store.saveNow();
       await App.cloudTick(true);
       if (sy().lastErr) throw new Error(sy().lastErr);

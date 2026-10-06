@@ -1,9 +1,7 @@
 /* Clearli Web — runs on the user's own Google Drive (hidden app folder, scope drive.appdata).
-   Two roles, picked from who wrote the vault:
-     member  — a phone is the main device: the web shows its snapshot and sends edits as small op files.
-     main    — web-first: nobody uses the phone app, so this browser keeps the vault itself. Bank files are
-               imported here; edits are saved as a fresh snapshot (and op files from other devices merged in).
-   If a phone later signs in with the same Google account and takes over, the web quietly becomes a member.
+   Sign in with Google here or in the phone app: every device is an equal ("peer") and syncs through the same
+   vault (Drive.peerSync). Bank files can be imported here; SimpleFIN bank sync runs in the phone app.
+   Only when the vault is still written by a 1.4.0 phone does the web act as a "member" and send op files.
    Loaded before store.js: provides the "Native" layer for the browser and gates boot until data is loaded. */
 (function () {
   window.CLEARLI_WEB = true;
@@ -27,7 +25,7 @@
     return;
   }
   if (hashTok) history.replaceState(null, '', location.pathname + location.search);
-  const W = { data: null, base: null, meta: null, pending: false, status: 'idle', lastPull: 0, role: 'member', applied: new Set() };
+  const W = { data: null, base: null, meta: null, pending: false, status: 'idle', lastPull: 0, role: 'peer', pendingOps: 0 };
   window.CW = W;
 
   /* ---------------- tiny IndexedDB key/value ---------------- */
@@ -94,23 +92,23 @@
     } else {
       const r = await Cloud.pullSnapshot(meta);
       snap = r.json;
-      if (W.remember && W.ckey) { const c = await Cloud.encrypt(await Cloud.zip(snap), W.ckey); idb.set('cache', { version: meta.version, by: meta.by, iv: c.iv, data: c.data, gz: Cloud.gz }).catch(() => { }); }
+      if (W.remember && W.ckey) { const c = await Cloud.encrypt(await Cloud.zip(snap), W.ckey); idb.set('cache', { version: meta.version, by: meta.by, sv: meta.sv, iv: c.iv, data: c.data, gz: Cloud.gz }).catch(() => { }); }
     }
     const batches = await Cloud.pullOps();
     const S = compose(snap, batches);
     W.meta = meta; W.lastPull = Date.now();
-    W.role = meta.by === 'web' ? 'main' : 'member';
-    W.applied = new Set(W.role === 'main' ? batches.map((b) => b.id) : []);
+    W.role = Drive.legacyMain(meta) ? 'member' : 'peer';
+    W.pendingOps = batches.length;
     return S;
   };
   W.install = function (S) {
     Store.S = S;
     U.currency = S.settings.currency || 'USD';
     Store.recompute();
-    W.base = Cloud.baseOf(Store.S);
+    W.base = Cloud.baseOf(Store.S, true);
     W.data = JSON.stringify(S);
-    // main: edits from other devices were applied on load — fold them into the snapshot and clear them
-    if (W.role === 'main' && W.applied.size) { clearTimeout(pushT); pushT = setTimeout(() => W.pushMain(true), 800); }
+    // op files left by older devices were applied on load — save them into the vault and clear them
+    if (W.role === 'peer' && W.pendingOps) { W.pendingOps = 0; clearTimeout(pushT); pushT = setTimeout(() => W.sync(), 800); }
   };
 
   // Push only what changed (encrypted); the phone merges it on its next sync
@@ -123,54 +121,48 @@
   };
   W.push = async function () {
     if (!W.base) return;
-    if (W.role === 'main') return W.pushMain();
+    if (W.role === 'peer') return W.sync();
     const ops = Cloud.diff(Store.S, W.base);
     if (!ops.length) { W.setStatus('ok'); return; }
     W.setStatus('saving');
     try {
       await Cloud.pushOps(ops);
-      W.base = Cloud.baseOf(Store.S);
+      W.base = Cloud.baseOf(Store.S, true);
       W.setStatus('ok');
     } catch (e) { if (e.auth) { W.setStatus('signin'); return; } W.setStatus('error', e.message); clearTimeout(pushT); pushT = setTimeout(W.push, 15000); }
   };
-  // Web-first: this browser owns the vault. Save a fresh snapshot, merging op files other devices left.
-  let mainBusy = false;
-  W.pushMain = async function (force) {
+  // Sync with the vault as one of several equal devices: pull what others saved, re-apply our edits, save.
+  let syncBusy = false;
+  const adopt = (R) => { const S = compose(JSON.stringify(R), []); Store.S = S; U.currency = S.settings.currency || 'USD'; return S; };
+  W.sync = async function (force) {
     if (!W.base) return;
-    if (mainBusy) { clearTimeout(pushT); pushT = setTimeout(() => W.pushMain(force), 1500); return; }
-    const ops = Cloud.diff(Store.S, W.base);
-    if (!ops.length && !force) { W.setStatus('ok'); return; }
-    mainBusy = true; W.setStatus('saving');
+    if (syncBusy) { clearTimeout(pushT); pushT = setTimeout(() => W.sync(force), 1500); return; }
+    syncBusy = true;
+    const mine = Cloud.diff(Store.S, W.base).length;
+    if (mine) W.setStatus('saving');
     try {
       const meta = await Cloud.meta();
-      if (meta && (!W.meta || meta.version !== W.meta.version)) {
-        if (meta.by !== 'web') {
-          // a phone signed in with this Google account and became the main device: hand it our edits and follow it
-          if (ops.length) await Cloud.pushOps(ops);
-          W.install(await W.pull(true)); App.render();
-          UI.toast('Your phone now keeps Clearli up to date', 'layers');
-          W.setStatus('ok'); return;
-        }
-        // another browser saved in the meantime: start from its copy and re-apply our edits on top
-        const S = await W.pull(true);
-        Cloud.apply(S, ops);
-        W.install(S);
+      if (Drive.legacyMain(meta)) {
+        // an older phone app writes the vault without merging: send our edits as op files and follow it
+        const ops = Cloud.diff(Store.S, W.base);
+        if (ops.length) await Cloud.pushOps(ops);
+        W.install(await W.pull(true)); App.render(); W.setStatus('ok'); return;
       }
-      const batches = await Cloud.pullOps();
-      let n = 0;
-      for (const b of batches) if (!W.applied.has(b.id)) { Cloud.apply(Store.S, b.ops); n += b.ops.length; }
-      if (n) Store.recompute();
-      const r = await Cloud.pushSnapshot(Cloud.snapshotOf(Store.S));
-      if (batches.length) await Cloud.deleteOps(batches.map((b) => b.id));
-      W.applied = new Set();
-      W.meta = { version: r.version, by: 'web' }; W.lastPull = Date.now();
-      W.base = Cloud.baseOf(Store.S); W.data = JSON.stringify(Store.S);
-      if (n) { App.render(); UI.toast(`Applied ${n} change${n > 1 ? 's' : ''} from your other devices`, 'layers'); }
+      const r = await Drive.peerSync({ meta, local: Store.S, base: W.base, version: W.meta ? W.meta.version : 0, adopt, force });
+      W.meta = { version: r.version, by: r.pushed ? 'web' : (meta && meta.by) || 'web', sv: 2 }; W.lastPull = Date.now();
+      W.base = r.base; W.data = JSON.stringify(Store.S);
+      if (r.remote || r.applied) {
+        Store.recompute();
+        const ae = document.activeElement;
+        if (!(ae && /INPUT|TEXTAREA|SELECT/.test(ae.tagName))) { App.render(); if (UI.sheets.length) UI.renderSheet(); }
+      }
+      if (r.applied) UI.toast(`Applied ${r.applied} change${r.applied > 1 ? 's' : ''} from your other devices`, 'layers');
       W.setStatus('ok');
+      return r;
     } catch (e) {
       if (e.auth) { W.setStatus('signin'); return; }
-      W.setStatus('error', e.message); clearTimeout(pushT); pushT = setTimeout(() => W.pushMain(force), 15000);
-    } finally { mainBusy = false; }
+      W.setStatus('error', e.message); clearTimeout(pushT); pushT = setTimeout(() => W.sync(force), 15000);
+    } finally { syncBusy = false; }
   };
   W.setStatus = function (s, msg) {
     W.status = s; W.statusMsg = msg || '';
@@ -180,7 +172,7 @@
     const I = U.icon;
     if (W.status === 'signin') return `<span class="warn">${I('alert-triangle', 'sm')} Google session paused</span> <button class="btn sm primary" data-a="wRenew" style="margin-left:6px">Continue</button>`;
     const m = { idle: ['cloud', 'faint', ''], pending: ['clock', 'faint', 'Unsaved'], saving: ['refresh-cw', 'faint', 'Saving…'], ok: ['check', 'pos', 'Saved'], error: ['alert-triangle', 'neg', 'Offline — will retry'] }[W.status] || ['check', 'pos', ''];
-    const phone = !W.meta ? '' : W.role === 'main' ? 'In your Google Drive' : 'Phone synced ' + U.ago(W.meta.version);
+    const phone = !W.meta ? '' : W.role === 'peer' ? 'Synced with your Google Drive' : 'Phone synced ' + U.ago(W.meta.version);
     return `<span class="${m[1]}">${I(m[0] === 'cloud' ? 'shield-check' : m[0], 'sm')} ${m[2]}</span>${phone ? `<span class="faint"> · ${phone}</span>` : ''}`;
   };
 
@@ -188,19 +180,19 @@
   W.refresh = async function (manual) {
     if (!W.base || document.hidden) return;
     try {
+      if (W.role === 'peer') {
+        const r = await W.sync(false);
+        if (manual && r) UI.toast(r.remote ? 'Updated from your other devices' : 'Up to date', 'check');
+        if (W.role === 'peer') return; // sync may have found an older phone app writing the vault
+      }
       if (Cloud.diff(Store.S, W.base).length) await W.push();
       const meta = await Cloud.meta();
       if (!meta) return;
-      if (W.meta && meta.version === W.meta.version) {
-        // main: pick up edits other devices left as op files
-        if (W.role === 'main') { const b = await Cloud.pullOps(); if (b.some((x) => !W.applied.has(x.id))) await W.pushMain(true); }
-        if (!manual) { W.setStatus(W.status); return; }
-        if (W.role === 'main') { UI.toast('Saved in your Google Drive', 'check'); return; }
-      }
+      if (!manual && W.meta && meta.version === W.meta.version) { W.setStatus(W.status); return; }
       const S = await W.pull(false);
       W.install(S);
       App.render();
-      if (manual) UI.toast(W.role === 'main' ? 'Up to date' : 'Up to date with your phone', 'check');
+      if (manual) UI.toast('Up to date with your phone', 'check');
     } catch (e) { if (e.auth) W.setStatus('signin'); else if (manual) UI.toast(e.message, 'alert-triangle'); }
   };
   setInterval(() => W.refresh(false), 20000);
@@ -295,11 +287,11 @@
     W.remember = localStorage.getItem('clearli.remember') !== '0';
     if (W.remember) await localKey(); else { await idb.del('cache').catch(() => { }); await idb.del('ckey').catch(() => { }); }
     let S;
-    try { S = await W.pull(true); } catch (e) { if (e.noData) { F.busy = false; W.welcome(); return; } throw e; }
+    try { S = await W.pull(true); } catch (e) { if (e.noData) { F.busy = false; await W.startFresh(); return; } throw e; }
     W.start(S);
   }
 
-  /* ---------------- web-first: nobody has synced yet → start right here ---------------- */
+  /* ---------------- first sign-in on any device: create the vault in this Google account ---------------- */
   const CUR = { US: 'USD', GB: 'GBP', IN: 'INR', CA: 'CAD', AU: 'AUD', NZ: 'NZD', JP: 'JPY', CN: 'CNY', CH: 'CHF', SE: 'SEK', NO: 'NOK', DK: 'DKK', PL: 'PLN', CZ: 'CZK', HU: 'HUF', RO: 'RON', BR: 'BRL', MX: 'MXN', AR: 'ARS', CL: 'CLP', CO: 'COP', ZA: 'ZAR', NG: 'NGN', KE: 'KES', EG: 'EGP', AE: 'AED', SA: 'SAR', QA: 'QAR', KW: 'KWD', PK: 'PKR', BD: 'BDT', LK: 'LKR', NP: 'NPR', SG: 'SGD', HK: 'HKD', KR: 'KRW', TW: 'TWD', TR: 'TRY', IL: 'ILS', ID: 'IDR', MY: 'MYR', PH: 'PHP', TH: 'THB', VN: 'VND' };
   const EUR = 'AT BE CY DE EE ES FI FR GR HR IE IT LT LU LV MT NL PT SI SK'.split(' ');
   W.guessCurrency = function () {
@@ -307,36 +299,16 @@
     for (const l of langs) { const r = (String(l).split('-')[1] || '').toUpperCase(); if (EUR.includes(r)) return 'EUR'; if (CUR[r]) return CUR[r]; }
     return 'USD';
   };
-  W.welcome = function () {
-    const el = document.getElementById('onb');
-    const I = U.icon;
-    document.body.classList.add('onb');
-    el.style.display = 'flex';
-    el.innerHTML = `<div class="inner" style="max-width:460px"><div class="logo"><img src="icon.png" alt=""></div><h1 class="hero-t">Welcome to Clearli</h1><p class="hero-s">Signed in as ${U.esc(W.email)}.</p>
-      <div class="g pad">
-        <div class="list g flat">${[['file-text', 'Any bank, anywhere', 'Download a CSV, OFX or QFX statement from your bank\'s website and drop it in.'], ['shield-check', 'Stored in your Google Drive', 'In a hidden folder only Clearli can open. No Clearli server ever sees it.'], ['smartphone', 'Phone app later?', 'Sign in there with this Google account; it picks up everything.']].map(([ic, t, d]) => `<div class="item">${UI.bubble(ic, '#7C8CFF')}<div class="grow"><div class="t">${t}</div><div class="s">${d}</div></div></div>`).join('')}</div>
-        ${F.err ? `<div class="small neg" style="margin:12px 4px 0">${I('alert-triangle', 'sm')} ${U.esc(F.err)}</div>` : ''}
-        <div class="sp"></div><button class="btn primary block" id="wFresh" ${F.busy ? 'disabled' : ''}>${F.busy ? '<div class="spin"></div> Setting up…' : I('sparkles', 'sm') + ' Start on the web'}</button>
-        <div class="center" style="margin-top:10px"><a href="#" id="wSwitch" class="link small">Use another Google account</a></div>
-      </div><p class="tiny faint center" style="margin-top:14px">Already use the Clearli phone app? Turn on sync there first (More → Web dashboard & sync), then reload this page.</p></div>`;
-    el.querySelector('#wFresh').onclick = () => W.startFresh();
-    el.querySelector('#wSwitch').onclick = (e) => { e.preventDefault(); F.busy = false; W.signIn(null, true); };
-  };
   W.startFresh = async function () {
-    F.err = ''; F.busy = true; W.welcome();
-    try {
-      // someone may have synced while this screen was open — never overwrite an existing vault
-      if (await Cloud.meta()) { F.busy = false; W.start(await W.pull(true)); return; }
-      const S0 = Store.fresh();
-      S0.settings.currency = W.guessCurrency();
-      S0.syncLog = [{ at: Date.now(), ok: true, msg: 'Started on the web' }];
-      W.role = 'main'; W.meta = null; W.applied = new Set();
-      F.busy = false;
-      W.start(compose(JSON.stringify(S0), []));
-      await W.pushMain(true);
-      if (W.status !== 'ok') throw new Error(W.statusMsg || 'Could not save to Google Drive');
-      UI.toast('Ready — import a bank file to begin', 'check');
-    } catch (e) { F.busy = false; F.err = e.message; W.welcome(); }
+    // someone may have synced in the meantime — never overwrite an existing vault
+    if (await Cloud.meta()) { W.start(await W.pull(true)); return; }
+    const S0 = Store.fresh();
+    S0.settings.currency = W.guessCurrency();
+    S0.syncLog = [{ at: Date.now(), ok: true, msg: 'Signed in on the web' }];
+    W.role = 'peer'; W.meta = null;
+    W.start(compose(JSON.stringify(S0), []));
+    const r = await W.sync(true);
+    if (!r) { F.err = W.statusMsg || 'Could not save to Google Drive'; }
   };
   // a non-extractable key that only lives in this browser, for the offline cache
   async function localKey() {
@@ -349,7 +321,7 @@
     document.getElementById('onb').style.display = 'none';
     document.body.classList.remove('onb');
     App.boot();
-    W.base = Cloud.baseOf(Store.S);
+    W.base = Cloud.baseOf(Store.S, true);
     W.setStatus('ok');
   };
   W.forget = async function () {
@@ -372,12 +344,12 @@
     if (W.remember) await localKey().catch(() => null);
     if (tk && tk.t && Date.now() < tk.exp - 60000) {
       try { W.start(await W.pull(false)); return; }
-      catch (e) { if (e.noData) { W.welcome(); return; } if (!e.auth) { F.err = e.message; } }
+      catch (e) { if (e.noData) { try { await W.startFresh(); return; } catch (x) { F.err = x.message; } } else if (!e.auth) { F.err = e.message; } }
     }
     // token expired (Google web tokens last 1 hour): show the cached copy and offer one-click Continue
     const cache = W.ckey ? await idb.get('cache').catch(() => null) : null;
     if (cache && tk && tk.email) {
-      try { const snap = await Cloud.unzip(await Cloud.decrypt(cache.iv, cache.data, W.ckey), cache.gz); W.meta = { version: cache.version, by: cache.by }; W.role = cache.by === 'web' ? 'main' : 'member'; W.start(compose(snap, [])); W.setStatus('signin'); return; } catch (x) { }
+      try { const snap = await Cloud.unzip(await Cloud.decrypt(cache.iv, cache.data, W.ckey), cache.gz); W.meta = { version: cache.version, by: cache.by }; W.role = Drive.legacyMain({ sv: cache.sv || 1, by: cache.by, version: cache.version }) ? 'member' : 'peer'; W.start(compose(snap, [])); W.setStatus('signin'); return; } catch (x) { }
     }
     W.gate();
   };
@@ -407,12 +379,12 @@
       let b = `<div class="g pad row">${UI.bubble('shield-check', '#43D9B8')}<div class="grow"><div class="h3">${U.esc(W.email || '')}</div><div class="small muted" id="webStatus">${W.statusHtml()}</div></div><button class="iconbtn g" data-a="sync">${I('refresh-cw')}</button></div>`;
       b += UI.sec('Data') + `<div class="list g">${row('wallet', '#43D9B8', 'Accounts', 'Rename, hide, set types', 'push', 'accounts')}${row('tag', '#FF6FB5', 'Categories', S.cats.length + ' categories', 'push', 'categories')}${row('sparkles', '#FFB547', 'Rules & learning', S.rules.length + ' rules', 'push', 'rules')}</div>`;
       b += UI.sec('Preferences') + `<div class="list g">${row('palette', '#B78CFF', 'Appearance', 'Theme and accent for this computer', 'push', 'appearance')}${row('settings', '#5AC8FA', 'General', `${S.settings.currency} · ${S.settings.apy}% APY`, 'push', 'general')}</div>`;
-      const main = W.role === 'main';
+      const main = W.role === 'peer';
       b += UI.sec('Import & export') + `<div class="list g">${row('file-text', '#FFB547', 'Import bank file', main ? 'CSV, OFX or QFX from any bank' : 'CSV, OFX or QFX — added on your phone at its next sync', 'importFile')}${row('download', '#43D9B8', 'Export transactions (CSV)', '', 'exportCsv')}</div>`;
       if (main) b += App.importsHtml();
       b += UI.sec('This computer') + `<div class="list g">${row('log-out', '#FF6B81', 'Sign out & forget this computer', 'Removes the saved sign-in and the local cache', 'wForget')}${main ? row('trash-2', '#FF6B81', 'Delete my data from Google Drive', 'Erases Clearli\'s hidden folder in your Drive', 'wWipe') : ''}</div>`;
       b += main
-        ? `<p class="tiny faint" style="margin:14px 6px">Everything is saved in a hidden folder in your own Google Drive that only Clearli can open. Want automatic bank sync (SimpleFIN, US/Canada)? Install the Clearli phone app and sign in with this Google account — it picks up your data and keeps it up to date.</p>`
+        ? `<p class="tiny faint" style="margin:14px 6px">Everything is saved in a hidden folder in your own Google Drive that only Clearli can open, and stays in sync with every phone or computer you sign in on with this Google account. Automatic bank sync (SimpleFIN) runs in the Clearli phone app.</p>`
         : `<p class="tiny faint" style="margin:14px 6px">Bank connections, SimpleFIN and app lock live on your phone. Edits you make here are saved to your Google Drive and applied by the phone the next time it syncs.</p>`;
       return { title: 'More', body: b };
     };

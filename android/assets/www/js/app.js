@@ -281,6 +281,7 @@
       const dec = OB.token ? Store.N.sync('decodeToken', OB.token) : null;
       const host = dec && /^https:\/\//.test(dec) ? dec.replace(/^https:\/\//, '').split('/')[0] : null;
       h = `<div class="logo">${UI.bubble('landmark', '#7C8CFF')}</div><h1 class="hero-t">Connect your banks</h1><p class="hero-s">Clearli uses SimpleFIN Bridge — a small, privacy-focused service that securely links 16,000+ banks.</p>
+      ${App.googleReady && App.googleReady() && !(Store.S.sync && Store.S.sync.enabled) && !OB.busy ? `<button class="btn primary block" data-a="obJoin">${App.gIcon()} Sign in with Google</button><div class="tiny faint center" style="margin:8px 0 14px">Same account on the web and every phone — your data stays in sync through your Google Drive.</div>` : ''}
       <div class="g pad"><ol class="steps" style="margin:0;padding:0">
         <li>Tap <b>Open SimpleFIN</b> — it opens right here. Create an account and connect your banks and cards.</li>
         <li>Under <b>Apps</b>, tap <b>New connection</b>, then <b>copy</b> the Setup Token.</li>
@@ -291,7 +292,7 @@
       <div class="field"><span>How far back?</span>${App.histPicker(OB, 'obBack')}${Number(OB.back) > 90 || OB.back === 'custom' ? `<div class="tiny faint" style="margin:6px 4px 0">The last 3 months load right away; older history keeps loading quietly in the background.</div>` : ''}</div>
       ${OB.err ? `<div class="g pad-s small neg" style="margin-bottom:12px">${I('alert-triangle', 'sm')} ${U.esc(OB.err)}</div>` : ''}
       ${OB.busy ? `<div class="row center" style="justify-content:center;padding:12px"><div class="spin"></div><span class="muted">${U.esc(OB.progress || 'Connecting…')}</span></div>` : `<button class="btn primary block" data-a="obConnect" ${host ? '' : 'disabled'}>Connect securely</button>
-      <div class="sp"></div><button class="btn block" data-a="obJoin">${I('layers')} We already use Clearli — join</button>
+      <div class="sp"></div><button class="btn block" data-a="obImport">${I('file-text')} No SimpleFIN? Import a bank file</button>
       <div class="sp"></div><button class="btn block" data-a="obDemo">${I('sparkles')} Explore with sample data</button>`}
       ${dots}`;
     } else {
@@ -370,6 +371,21 @@
     if (Store.backfillStart(target)) setTimeout(App.runBackfill, 1500);
     UI.toast(`Connected · ${Object.keys(Store.S.accounts).length} accounts`, 'check');
     OB.step = 3; App.onboard();
+  });
+  // Banks anywhere in the world: start from a statement file (signed in first, so it's saved to Google Drive)
+  UI.on('obImport', async () => {
+    if (App.googleReady && App.googleReady() && !(Store.S.sync && Store.S.sync.enabled)) {
+      OB.busy = true; OB.err = ''; OB.progress = 'Sign in with Google first…'; App.onboard();
+      let role = null;
+      try { role = await App.turnOnDrive((m) => { if (m) { OB.progress = m; App.onboard(); } }); }
+      catch (e) { OB.busy = false; OB.err = e.message; App.onboard(); return; }
+      OB.busy = false;
+      if (!role) { App.onboard(); return; }
+    }
+    Store.S.settings.demo = false; Store.S.settings.onboarded = true; Store.commit({ silent: true }); Store.saveNow();
+    document.getElementById('onb').style.display = 'none'; document.body.classList.remove('onb');
+    App.applyTheme(); App.render(true);
+    App.startImport();
   });
   UI.on('obDemo', () => { Store.loadDemo(); Store.S.settings.onboarded = false; OB.step = 3; App.onboard(); });
   UI.on('obLock', () => { Store.S.settings.lock = !Store.S.settings.lock; App.onboard(); });

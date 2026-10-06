@@ -10,6 +10,7 @@
   const UP = 'https://www.googleapis.com/upload/drive/v3';
   D.SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
   D.VAULT = 'clearli-vault.json';
+  D.SV = 2;              // sync version 2: every signed-in device (web or phone) reads and writes the vault itself
   D.OP = 'clearli-op-';
   D.tok = null;          // {t, exp}
   D.provider = null;     // async (force) => {t, exp}  — native refresh on Android, popup token on the web
@@ -65,13 +66,13 @@
     if (!f) { D.vaultId = null; return null; }
     D.vaultId = f.id;
     const ap = f.appProperties || {};
-    return { version: Number(ap.version) || Date.parse(f.createdTime) || 0, by: ap.by || '', id: f.id, n: 1, size: Number(f.size) || 0 };
+    return { version: Number(ap.version) || Date.parse(f.createdTime) || 0, by: ap.by || '', sv: Number(ap.sv) || 1, id: f.id, n: 1, size: Number(f.size) || 0 };
   };
   D.pushSnapshot = async function (json) {
     const bytes = await Cloud.zip(json);
     const content = JSON.stringify({ app: 'clearli', v: 2, gz: Cloud.gz, data: Cloud.b64(bytes) });
     const version = Date.now();
-    const props = { appProperties: { version: String(version), by: Cloud.device } };
+    const props = { appProperties: { version: String(version), by: Cloud.device, sv: String(D.SV) } };
     if (D.vaultId === null) await D.meta();
     let id = null;
     try { id = await upload(D.vaultId, D.vaultId ? props : Object.assign({ name: D.VAULT, parents: ['appDataFolder'], mimeType: 'application/json' }, props), content); }
@@ -115,6 +116,36 @@
     D.vaultId = null;
     return all.length;
   };
+
+  /* ---------- peer sync (sv 2): web and phones are equals ----------
+     Each device keeps a fingerprint of what it last saw (base) and the vault version. On sync it pulls the vault if
+     another device saved since, re-applies its own edits on top, merges op files left by older devices, and saves.
+       o.local    the device's state            o.base / o.version   what it last saw (base null on first sync)
+       o.adopt(R) install remote state R, keeping device-only things; returns the new local state
+       o.merge(R, local) first sync of a device that already has data: fold it into R; true if anything was added */
+  D.peerSync = async function (o) {
+    const meta = o.meta !== undefined ? o.meta : await D.meta();
+    let S = o.local; let changed = !!o.force; let remote = false;
+    if (meta && meta.version !== o.version) {
+      const R = JSON.parse((await D.pullSnapshot(meta)).json);
+      if (o.base) { const ops = Cloud.diff(S, o.base); Cloud.apply(R, ops); if (ops.length) changed = true; }
+      else if (o.merge && o.merge(R, S)) changed = true;
+      S = o.adopt(R); remote = true;
+    } else if (!meta || !o.base || Cloud.diff(S, o.base).length) changed = true;
+    const batches = await D.pullOps();
+    for (const b of batches) Cloud.apply(S, b.ops);
+    if (batches.length) changed = true;
+    let version = meta ? meta.version : 0;
+    if (changed) {
+      const r = await D.pushSnapshot(Cloud.snapshotOf(S));
+      version = r.version;
+      if (batches.length) await D.deleteOps(batches.map((b) => b.id));
+    }
+    return { S, version, base: Cloud.baseOf(S, true), remote, pushed: changed, applied: batches.reduce((n, b) => n + b.ops.length, 0) };
+  };
+  // A vault last saved by a phone on Clearli 1.4.0 or older: that phone overwrites the vault without merging,
+  // so other devices must keep sending op files until it updates.
+  D.legacyMain = (meta) => !!(meta && meta.sv < 2 && meta.by === 'phone' && Date.now() - meta.version < 14 * 86400000);
 
   // Switch the shared sync code (appsync.js / web.js) onto Drive. Firebase functions stay reachable as Cloud.fb.
   D.use = function () {

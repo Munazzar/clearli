@@ -178,26 +178,33 @@
   C.SECTIONS = ['rules', 'cats', 'goals', 'assets', 'recurringOverrides', 'conns', 'imports', 'reviewed'];
   C.SHARED_SETTINGS = ['apy', 'weekStart', 'currency', 'earlyIncome', 'historyDays'];
   C.ACCT_FIELDS = ['alias', 'type', 'hidden', 'excludeTotals', 'excludeReports'];
-  C.baseOf = function (S) {
+  // short fingerprint of a JSON string — a "hashed" base is small enough to keep with the saved state
+  C.h = (str) => { let a = 5381, b = 52711; for (let i = 0; i < str.length; i++) { const c = str.charCodeAt(i); a = ((a << 5) + a + c) | 0; b = ((b << 5) + b ^ c) | 0; } return (a >>> 0).toString(36) + (b >>> 0).toString(36) + str.length.toString(36); };
+  // What a device last saw in the cloud. hashed=true stores fingerprints instead of copies (diff works on either).
+  C.baseOf = function (S, hashed) {
+    const f = hashed ? C.h : (x) => x;
     return {
-      edits: Object.fromEntries(Object.entries(S.edits).map(([k, v]) => [k, JSON.stringify(v)])),
-      sec: Object.fromEntries(C.SECTIONS.map((s) => [s, JSON.stringify(S[s] || null)])),
-      set: JSON.stringify(C.SHARED_SETTINGS.map((k) => S.settings[k])),
-      acct: Object.fromEntries(Object.values(S.accounts).map((a) => [a.id, JSON.stringify(a.manual ? a : C.ACCT_FIELDS.map((f) => a[f]))])),
-      txk: new Set(Object.keys(S.txns)),
+      h: !!hashed,
+      edits: Object.fromEntries(Object.entries(S.edits).map(([k, v]) => [k, f(JSON.stringify(v))])),
+      sec: Object.fromEntries(C.SECTIONS.map((s) => [s, f(JSON.stringify(S[s] || null))])),
+      set: f(JSON.stringify(C.SHARED_SETTINGS.map((k) => S.settings[k]))),
+      acct: Object.fromEntries(Object.values(S.accounts).map((a) => [a.id, f(JSON.stringify(a.manual ? a : C.ACCT_FIELDS.map((x) => a[x])))])),
+      txk: hashed ? Object.keys(S.txns) : new Set(Object.keys(S.txns)),
     };
   };
   C.diff = function (S, B) {
     const ops = [];
-    for (const k of new Set([...Object.keys(S.edits), ...Object.keys(B.edits)])) { const v = S.edits[k] ? JSON.stringify(S.edits[k]) : undefined; if (v !== B.edits[k]) ops.push({ t: 'edit', k, v: S.edits[k] || null }); }
-    for (const s of C.SECTIONS) { const v = JSON.stringify(S[s] || null); if (v !== B.sec[s]) ops.push({ t: 'sec', s, v: S[s] }); }
-    if (JSON.stringify(C.SHARED_SETTINGS.map((k) => S.settings[k])) !== B.set) ops.push({ t: 'set', v: Object.fromEntries(C.SHARED_SETTINGS.map((k) => [k, S.settings[k]])) });
-    for (const a of Object.values(S.accounts)) { const v = JSON.stringify(a.manual ? a : C.ACCT_FIELDS.map((f) => a[f])); if (v !== B.acct[a.id]) ops.push({ t: 'acct', id: a.id, v: a.manual ? a : Object.fromEntries(C.ACCT_FIELDS.map((f) => [f, a[f]])), manual: !!a.manual }); }
+    const f = B.h ? C.h : (x) => x;
+    const txk = B.txk instanceof Set ? B.txk : new Set(B.txk);
+    for (const k of new Set([...Object.keys(S.edits), ...Object.keys(B.edits)])) { const v = S.edits[k] ? f(JSON.stringify(S.edits[k])) : undefined; if (v !== B.edits[k]) ops.push({ t: 'edit', k, v: S.edits[k] || null }); }
+    for (const s of C.SECTIONS) { const v = f(JSON.stringify(S[s] || null)); if (v !== B.sec[s]) ops.push({ t: 'sec', s, v: S[s] }); }
+    if (f(JSON.stringify(C.SHARED_SETTINGS.map((k) => S.settings[k]))) !== B.set) ops.push({ t: 'set', v: Object.fromEntries(C.SHARED_SETTINGS.map((k) => [k, S.settings[k]])) });
+    for (const a of Object.values(S.accounts)) { const v = f(JSON.stringify(a.manual ? a : C.ACCT_FIELDS.map((x) => a[x]))); if (v !== B.acct[a.id]) ops.push({ t: 'acct', id: a.id, v: a.manual ? a : Object.fromEntries(C.ACCT_FIELDS.map((f) => [f, a[f]])), manual: !!a.manual }); }
     for (const id in B.acct) if (!S.accounts[id]) ops.push({ t: 'acctDel', id });
     const add = {}; let nAdd = 0;
-    for (const k in S.txns) if (!B.txk.has(k)) { add[k] = S.txns[k]; nAdd++; if (nAdd >= 1500) { ops.push({ t: 'txAdd', v: Object.assign({}, add) }); for (const x in add) delete add[x]; nAdd = 0; } }
+    for (const k in S.txns) if (!txk.has(k)) { add[k] = S.txns[k]; nAdd++; if (nAdd >= 1500) { ops.push({ t: 'txAdd', v: Object.assign({}, add) }); for (const x in add) delete add[x]; nAdd = 0; } }
     if (nAdd) ops.push({ t: 'txAdd', v: add });
-    const del = []; for (const k of B.txk) if (!S.txns[k]) del.push(k);
+    const del = []; for (const k of txk) if (!S.txns[k]) del.push(k);
     if (del.length) ops.push({ t: 'txDel', v: del });
     return ops;
   };

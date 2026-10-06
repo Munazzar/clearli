@@ -21,19 +21,22 @@ Build with `KEYSTORE_PASS=… ./build.sh`.
 ## Tests
 `bash test/run-all.sh` runs everything (Node + Playwright, screenshots in test/shots); CI runs the same on every PR.
 
-## Google sign-in, Drive storage and web-first mode
-Each person's data lives in **their own Google Drive**, in the hidden app folder (scope `drive.appdata`): Clearli
-can't see their other files and there is no Clearli server. Two ways to use it:
+## Google sign-in and Drive sync
+People sign in with Google **on the web or in the app, whichever they like**. Each person's data lives in their own
+Google Drive, in the hidden app folder (scope `drive.appdata`): Clearli can't see their other files and there is no
+Clearli server.
 
-- **Phone + SimpleFIN (US/Canada banks).** When this build has Google sign-in configured, SimpleFIN only syncs
-  after the user signs in with Google and the phone is the main device. Connecting SimpleFIN during onboarding
-  asks for Google sign-in first; a signed-out phone (or a revoked sign-in) pauses bank sync and shows
-  "Sign in with Google" on the Connection page.
-- **Web only, any bank in any country.** Anyone can open the web dashboard, sign in with Google and press
-  **Start on the web**. They import CSV/OFX/QFX statements from their bank (comma or dot decimals, day-first
-  dates, month names, local-language headers, UTF-8/UTF-16/Windows-1252). The browser keeps the vault itself
-  ("main" role) and saves a snapshot to Drive after each change. If they install the phone app later and sign in
-  with the same Google account, the phone brings the web data in and takes over; the web then follows the phone.
+- **Every device is an equal.** The web and any number of phones signed in with the same Google account read and
+  write the same vault (`clearli-vault.json`, appProperties `sv=2`). On each sync a device pulls what the others
+  saved, re-applies its own edits on top and saves (`Drive.peerSync` in `js/drive.js`), so edits made at the same time
+  on two devices are both kept. A vault still written by a 1.4.0 phone (no `sv`) is followed the old way (op files)
+  until that phone updates.
+- **Getting transactions in.** Import CSV/OFX/QFX statements from any bank in any country, on the web or the phone
+  (comma or dot decimals, day-first dates, month names, local-language headers, UTF-8/UTF-16/Windows-1252).
+  SimpleFIN (US/Canada) is optional and runs in the phone app.
+- **SimpleFIN only after sign-in.** When this build has Google sign-in configured, SimpleFIN sync and history
+  loading run only while the phone is signed in. Connecting SimpleFIN during onboarding asks for Google sign-in
+  first; a signed-out or revoked phone pauses bank sync and shows "Sign in with Google" on the Connection page.
 
 ### One-time setup (Google Cloud project `clearli-8c132`)
 1. **APIs & Services → Library:** enable the Google Drive API.
