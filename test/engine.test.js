@@ -1,0 +1,17 @@
+global.window = global; global.localStorage = { _: {}, getItem(k){return this._[k]||null}, setItem(k,v){this._[k]=v}, removeItem(k){delete this._[k]} };
+global.atob = (s)=>Buffer.from(s,'base64').toString('binary');
+const fs=require('fs'); const W='android/assets/www/js/';
+for (const f of ['icons.js','util.js','engine.js','store.js']) eval(fs.readFileSync(W+f,'utf8'));
+console.time('demo'); Store.loadDemo(); console.timeEnd('demo');
+const V=Store.V; console.log('txns', V.list.length);
+const list=E.scoped(V,{accts:[],conns:[]});
+const cats=E.byCategory(V, E.inRange(list, U.addMonths(U.som(new Date()),-1), U.som(new Date())));
+console.log(cats.map(c=>c.c.name+':'+c.v.toFixed(0)).join(' | '));
+console.log('recurring:', V.recurring.map(r=>`${r.name} ${r.freq} ${r.amount.toFixed(2)} active=${r.active} n=${r.count}${r.priceChange?' hike':''}`).join('\n  '));
+console.log('insights:', E.insights(V,list,Store.S).map(i=>i.title).join('\n  '));
+console.log('forecast', JSON.stringify(E.forecastMonth(V,list),(k,v)=>typeof v==='number'?Math.round(v):v).slice(0,300));
+console.log('plan', E.planGoal(V,list,Store.S,Store.S.goals[1]).needMonthly, E.planGoal(V,list,Store.S,Store.S.goals[1]).free);
+console.log('uncat', V.list.filter(t=>t.cat==='other').slice(0,10).map(t=>t.desc));
+const tests=['PURCHASE AUTHORIZED ON 09/12 STARBUCKS STORE 12345 SEATTLE WA','SQ *BLUE BOTTLE COFFEE','TST* JOES PIZZA 4432','AMZN MKTP US*2K3LL0','PAYPAL *NETFLIX','WHOLE FOODS MKT #10212 CHICAGO IL','CITY OF CHICAGO PARKING','SHELL OIL 57444321','DEBIT CARD PURCHASE XXXXX1234 HOME DEPOT #1922'];
+for (const t of tests) console.log(t,'=>',E.merchantKey(t),'/',E.keywordCategory(t.toLowerCase(),-10));
+for (const p of E.PERIODS) console.log(p.id, E.periodRange(p.id,0).label, E.periodRange(p.id,-1).label);

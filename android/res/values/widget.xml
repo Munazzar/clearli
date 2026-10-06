@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="WCell">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:layout_height">22dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:textSize">11.5sp</item>
+        <item name="android:textColor">#E6E9FA</item>
+    </style>
+    <style name="WDow">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:layout_height">16dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:textSize">9.5sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">#6B7499</item>
+    </style>
+</resources>

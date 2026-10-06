@@ -1,0 +1,13 @@
+rules_version = '2';
+// Clearli: each signed-in user can only read/write their own encrypted data.
+// Layout: users/{uid}/vault/{chunk}  (encrypted snapshot pieces)
+//         users/{uid}/ops/{opId}     (encrypted edits made on the web)
+//         users/{uid}/meta/{doc}     (version / salt — no financial data)
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+    // everything else is denied by default
+  }
+}
